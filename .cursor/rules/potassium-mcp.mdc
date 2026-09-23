@@ -1,0 +1,22 @@
+---
+description: Check the Potassium MCP before editing a script.
+alwaysApply: true
+---
+
+# Potassium MCP
+
+Before editing a script, check the Potassium MCP (`user-potassium`).
+
+1. Call `tabs` with action `list`.
+2. If a tab matches the file, call `tabs` with action `read` and treat that text as the current source.
+3. When that tab is dirty or differs from the file on disk, edit from the tab text.
+
+```lua
+-- BAD
+-- Edit Duper.lua on disk while Duper.luau is open and unsaved in Potassium.
+
+-- GOOD
+-- List Potassium tabs, read Duper.luau, then edit from that text.
+```
+
+If the MCP is unavailable, say so, then edit from the files on disk.

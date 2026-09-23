@@ -1,0 +1,18 @@
+---
+description: New settings go on the Settings tab and in the saved config. Keep the UI terse.
+alwaysApply: true
+---
+
+# Settings
+
+Put every new user setting on `settingsPage` in `Duper.lua`, and persist it in `saveConfig` and `applySavedConfig`.
+
+Keep the UI to a label and a control. No hint text, captions, or explanations of where something saves or how to use it.
+
+```lua
+-- BAD
+Text = "Click the key, then press a new one."
+
+-- GOOD
+Text = "Toggle key"
+```
