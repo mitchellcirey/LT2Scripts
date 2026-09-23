@@ -1668,6 +1668,7 @@ local function RunPass()
     end
 end
 
+local function buildInterface()
 local function getUiParent()
     local ok, hui = pcall(function()
         return gethui()
@@ -3269,3 +3270,6 @@ do
         end
     end)
 end
+end
+
+buildInterface()
