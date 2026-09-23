@@ -13,10 +13,9 @@ local UserInputService  = Services.UserInputService
 local Player            = Players.LocalPlayer
 local ClientIsDragging  = ReplicatedStorage:WaitForChild("Interaction"):WaitForChild("ClientIsDragging")
 
-local MAX_STUDS = 10
-local APPROACH_STUDS = 4
-local APPROACH_WAIT = 0.2
-local HOLD_BEFORE_RELEASE = 0.12
+local HOLD_BEFORE_RELEASE = 0.2
+local PLACE_RETRIES = 3
+local ARRIVE_SLOP = 8
 local POST_OBJECT_DELAY = 0.04
 local FALLBACK_WAIT = 0.35
 local PILE_OWNERSHIP_TIMEOUT = 0.55
@@ -406,14 +405,6 @@ local screenGui
 
 local function isStopped()
     return abort or not (screenGui and screenGui.Parent)
-end
-
-local function flatten(v)
-    local flat = Vector3.new(v.X, 0, v.Z)
-    if flat.Magnitude < 0.05 then
-        return Vector3.new(0, 0, -1)
-    end
-    return flat.Unit
 end
 
 local function isLandPart(part)
@@ -1155,34 +1146,22 @@ local function findLastInteraction(model)
     return model:FindFirstChild("LastInteraction", true)
 end
 
-local function approachItem(target, pressedCF)
-    if not (root and root.Parent and target and target.Parent) then
+local function arrivedAt(target, destPos)
+    if not (target and target.Parent and destPos) then
         return false
     end
-    if (root.Position - target.Position).Magnitude <= MAX_STUDS then
-        return true
-    end
+    local delta = target.Position - destPos
+    return (delta * Vector3.new(1, 0, 1)).Magnitude <= ARRIVE_SLOP
+end
 
-    releaseDrag()
-    if isStopped() or not (root and root.Parent and target and target.Parent) then
-        return false
-    end
-
-    local offset = (root.Position - target.Position) * Vector3.new(1, 0, 1)
-    local dir = if offset.Magnitude > 0.05 then offset.Unit else flatten(pressedCF.LookVector)
-    local stand = target.Position + dir * APPROACH_STUDS + Vector3.new(0, 1.5, 0)
-    local standCF = CFrame.new(stand) * (pressedCF - pressedCF.Position)
-    local deadline = tick() + APPROACH_WAIT
-    while tick() < deadline do
-        if isStopped() or not (root and root.Parent) then
-            return false
+local function widenSimulation()
+    pcall(function()
+        if type(sethiddenproperty) ~= "function" then
+            return
         end
-        root.CFrame = standCF
-        root.AssemblyLinearVelocity = Vector3.zero
-        root.AssemblyAngularVelocity = Vector3.zero
-        task.wait()
-    end
-    return root and root.Parent and not isStopped()
+        sethiddenproperty(Player, "MaximumSimulationRadius", 1000)
+        sethiddenproperty(Player, "SimulationRadius", 1000)
+    end)
 end
 
 local function fallbackClaim(model, pile)
@@ -1255,57 +1234,59 @@ local function MoveObject(v, pressedCF, i, pile, destOverride)
         return false
     end
 
-    if not approachItem(target, pressedCF) then
-        if isStopped() then
-            return nil
-        end
-        return false
-    end
-
-    if not claimDrag(v, pile) then
-        releaseDrag()
-        if isStopped() then
-            return nil
-        end
-        return false
-    end
-
-    if isStopped() or not (v.Parent and target.Parent) then
-        releaseDrag()
-        return nil
-    end
-
     local destPos = destOverride
     if not destPos then
         if pile then
             destPos = (pressedCF * CFrame.new(0, 0.08 * (i - 1), 3)).Position
         else
-            releaseDrag()
             return false
         end
     end
     destPos = snapOntoPlot(destPos, activePlot, activeSpacing)
-    placeLogStanding(v, target, destPos, not pile, pressedCF)
-    if v.Parent then
-        settleModel(v)
-    end
+    local standUp = not pile
 
-    local holdUntil = tick() + HOLD_BEFORE_RELEASE
-    while tick() < holdUntil do
-        if isStopped() or not v.Parent then
-            break
+    for _ = 1, PLACE_RETRIES do
+        if isStopped() then
+            releaseDrag()
+            return nil
         end
-        pcall(function()
-            ClientIsDragging:FireServer(v)
-        end)
-        task.wait()
-    end
-    releaseDrag()
+        if not (v.Parent and target.Parent) then
+            releaseDrag()
+            return false
+        end
 
-    if not isStopped() then
-        task.wait(if pile then PILE_POST_DELAY else POST_OBJECT_DELAY)
+        if not claimDrag(v, pile) then
+            releaseDrag()
+            if isStopped() then
+                return nil
+            end
+            continue
+        end
+
+        local holdUntil = tick() + HOLD_BEFORE_RELEASE
+        while tick() < holdUntil do
+            if isStopped() or not (v.Parent and target.Parent) then
+                releaseDrag()
+                return nil
+            end
+            pcall(function()
+                ClientIsDragging:FireServer(v)
+            end)
+            placeLogStanding(v, target, destPos, standUp, pressedCF)
+            task.wait()
+        end
+        releaseDrag()
+        task.wait(0.12)
+        if arrivedAt(target, destPos) then
+            if not isStopped() then
+                task.wait(if pile then PILE_POST_DELAY else POST_OBJECT_DELAY)
+            end
+            return true
+        end
     end
-    return v.Parent ~= nil
+
+    releaseDrag()
+    return false
 end
 
 local function objectMatch(v)
@@ -1569,6 +1550,7 @@ local function RunPass()
     end
 
     local pressedCF = root.CFrame
+    widenSimulation()
     activePlot = getPlotArea(pressedCF.Position)
     if not activePlot then
         setStatus("Stand on your plot")
@@ -1646,10 +1628,7 @@ local function RunPass()
 
     for index, job in ipairs(jobs) do
         if isStopped() then
-            if root and root.Parent then
-                releaseDrag()
-                root.CFrame = pressedCF
-            end
+            releaseDrag()
             setStatus("Stopped")
             return
         end
@@ -1667,26 +1646,23 @@ local function RunPass()
         setStatus(("Moving %s (%d/%d)"):format(job.label, index, #jobs))
         local placed = MoveObject(job.model, pressedCF, index, pile, dest)
         if placed == nil or isStopped() then
-            if root and root.Parent then
-                releaseDrag()
-                root.CFrame = pressedCF
-            end
+            releaseDrag()
             setStatus("Stopped")
             return
         end
-        cycleDone[job.model] = true
         if placed then
+            cycleDone[job.model] = true
             moved += 1
         end
     end
 
-    if root and root.Parent then
-        releaseDrag()
-        root.CFrame = pressedCF
-    end
+    releaseDrag()
 
+    local left = #jobs - moved
     if moved == 0 then
         setStatus(if #jobs == 0 then "No matching items" else "Couldn't grab")
+    elseif left > 0 then
+        setStatus(("Moved %d, %d left"):format(moved, left))
     else
         setStatus(("Moved %d item%s"):format(moved, if moved == 1 then "" else "s"))
     end
@@ -1879,7 +1855,7 @@ local function makeRailButton(text, parent, order)
     }, parent)
 end
 
-local duperBtn = makeRailButton("Duper", scriptList, 1)
+local duperBtn = makeRailButton("Pookie's LT2 Duper!", scriptList, 1)
 duperBtn.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
 duperBtn.TextColor3 = Color3.fromRGB(18, 18, 18)
 
