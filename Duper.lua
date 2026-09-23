@@ -14,9 +14,11 @@ local Player            = Players.LocalPlayer
 local ClientIsDragging  = ReplicatedStorage:WaitForChild("Interaction"):WaitForChild("ClientIsDragging")
 
 local MAX_STUDS = 10
+local APPROACH_STUDS = 4
+local APPROACH_WAIT = 0.2
+local HOLD_BEFORE_RELEASE = 0.12
 local POST_OBJECT_DELAY = 0.04
 local FALLBACK_WAIT = 0.35
-local PRE_FIRE_WAIT = 0.02
 local PILE_OWNERSHIP_TIMEOUT = 0.55
 local PILE_FALLBACK_WAIT = 0.25
 local PILE_POST_DELAY = 0.04
@@ -393,6 +395,7 @@ local abort = false
 local autoToken = 0
 local setStatus
 local logLimit = nil
+local cycleDone = {}
 local pilePlanks = false
 local plotTarget = { name = nil }
 local currentCategoryId = "logs"
@@ -954,10 +957,17 @@ local function standingFootprint(part)
     return math.max(dims[1], dims[2])
 end
 
+local function dragTarget(model)
+    return model:FindFirstChild("Main")
+        or model:FindFirstChild("WoodSection")
+        or model:FindFirstChildWhichIsA("BasePart")
+        or model:FindFirstChildWhichIsA("BasePart", true)
+end
+
 local function logSpacingFor(models)
     local spacing = MIN_LOG_SPACING
     for _, model in ipairs(models) do
-        local target = model:FindFirstChild("Main") or model:FindFirstChild("WoodSection") or model:FindFirstChildWhichIsA("BasePart")
+        local target = dragTarget(model)
         if target then
             spacing = math.max(spacing, standingFootprint(target) + LOG_GAP)
         end
@@ -1095,126 +1105,176 @@ local function releaseDrag()
     end)
 end
 
-local function MoveObject(v, pressedCF, i, pile, destOverride)
-    if isStopped() then
-        return
+local function interactionIsOurs(value)
+    if value == Player or value == Player.Name then
+        return true
+    end
+    if typeof(value) == "Instance" then
+        return value == Player or value.Name == Player.Name
+    end
+    return false
+end
+
+local function findLastInteraction(model)
+    local owner = model:FindFirstChild("Owner")
+    local onOwner = owner and owner:FindFirstChild("LastInteraction")
+    if onOwner then
+        return onOwner
+    end
+    return model:FindFirstChild("LastInteraction", true)
+end
+
+local function approachItem(target, pressedCF)
+    if not (root and root.Parent and target and target.Parent) then
+        return false
+    end
+    if (root.Position - target.Position).Magnitude <= MAX_STUDS then
+        return true
     end
 
-    local target = v:FindFirstChild("Main") or v:FindFirstChild("WoodSection") or v:FindFirstChildWhichIsA("BasePart")
-    if not target then
-        return
+    releaseDrag()
+    if isStopped() or not (root and root.Parent and target and target.Parent) then
+        return false
     end
 
-    local flat = (root.Position - target.Position) * Vector3.new(1, 0, 1)
-    if flat.Magnitude > MAX_STUDS then
-        releaseDrag()
-        local aside = flatten(pressedCF.RightVector) * 6 + Vector3.new(0, 5, 0)
-        root.CFrame = CFrame.new(target.Position + aside) * (pressedCF - pressedCF.Position)
-    end
-
-    local lastInteraction = v.Owner and v.Owner:FindFirstChild("LastInteraction")
-
-    if isStopped() then
-        return
-    end
-    if not pile then
-        task.wait(PRE_FIRE_WAIT)
-    end
-    if isStopped() then
-        return
-    end
-
-    if lastInteraction then
-        local co = coroutine.running()
-        local fired = false
-        local OWNERSHIP_TIMEOUT = if pile then PILE_OWNERSHIP_TIMEOUT else 1
-
-        local conn = lastInteraction:GetPropertyChangedSignal("Value"):Connect(function()
-            if not fired then
-                fired = true
-                task.spawn(co)
-            end
-        end)
-
-        local fireLoop = task.spawn(function()
-            local deadline = tick() + OWNERSHIP_TIMEOUT
-
-            local ok, err = pcall(function()
-                while not fired and not isStopped() and tick() < deadline do
-                    ClientIsDragging.FireServer(ClientIsDragging, v)
-                    task.wait()
-                end
-            end)
-
-            if not fired then
-                fired = true
-                task.spawn(co)
-
-                if isStopped() then
-                    return
-                end
-
-                if not pile then
-                    if not ok then
-                        warn(("[LOT] FireServer errored on '%s': %s"):format(v.Name, tostring(err)))
-                    else
-                        warn(("[LOT] LastInteraction on '%s' never changed within %.1fs — proceeding anyway."):format(v.Name, OWNERSHIP_TIMEOUT))
-                    end
-                end
-            end
-        end)
-
-        coroutine.yield()
-        conn:Disconnect()
-        pcall(task.cancel, fireLoop)
-        if isStopped() then
-            return
+    local offset = (root.Position - target.Position) * Vector3.new(1, 0, 1)
+    local dir = if offset.Magnitude > 0.05 then offset.Unit else flatten(pressedCF.LookVector)
+    local stand = target.Position + dir * APPROACH_STUDS + Vector3.new(0, 1.5, 0)
+    local standCF = CFrame.new(stand) * (pressedCF - pressedCF.Position)
+    local deadline = tick() + APPROACH_WAIT
+    while tick() < deadline do
+        if isStopped() or not (root and root.Parent) then
+            return false
         end
-    else
-        local waitTime = if pile then PILE_FALLBACK_WAIT else FALLBACK_WAIT
-        if not pile then
-            warn(("[LOT] No Owner.LastInteraction found on '%s' — using fallback wait."):format(v.Name))
+        root.CFrame = standCF
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
+        task.wait()
+    end
+    return root and root.Parent and not isStopped()
+end
+
+local function fallbackClaim(model, pile)
+    local waitTime = if pile then PILE_FALLBACK_WAIT else FALLBACK_WAIT
+    local deadline = tick() + waitTime
+    while tick() < deadline do
+        if isStopped() or not (model and model.Parent) then
+            return false
         end
-        local deadline = tick() + waitTime
-        while tick() < deadline do
-            if isStopped() then
-                return
+        local ok, err = pcall(function()
+            ClientIsDragging:FireServer(model)
+        end)
+        if not ok then
+            if not pile then
+                warn(("[LOT] Fallback FireServer errored on '%s': %s"):format(model.Name, tostring(err)))
             end
-            local ok, err = pcall(ClientIsDragging.FireServer, ClientIsDragging, v)
-            if not ok then
-                if not pile then
-                    warn(("[LOT] Fallback FireServer errored on '%s': %s"):format(v.Name, tostring(err)))
-                end
-                break
+            return false
+        end
+        task.wait()
+    end
+    return not isStopped()
+end
+
+local function claimDrag(model, pile)
+    local lastInteraction = findLastInteraction(model)
+    if not lastInteraction then
+        return fallbackClaim(model, pile)
+    end
+
+    local timeout = if pile then PILE_OWNERSHIP_TIMEOUT else 1
+    local deadline = tick() + timeout
+    while tick() < deadline do
+        if isStopped() or not (model and model.Parent) then
+            return false
+        end
+        local ok, err = pcall(function()
+            ClientIsDragging:FireServer(model)
+        end)
+        if not ok then
+            if not pile then
+                warn(("[LOT] FireServer errored on '%s': %s"):format(model.Name, tostring(err)))
             end
+            return false
+        end
+        if interactionIsOurs(lastInteraction.Value) then
+            task.wait(0.08)
+            if isStopped() or not (model and model.Parent) then
+                return false
+            end
+            if interactionIsOurs(lastInteraction.Value) then
+                return true
+            end
+        else
             task.wait()
         end
     end
+    if not pile then
+        warn(("[LOT] LastInteraction on '%s' never became you within %.1fs."):format(model.Name, timeout))
+    end
+    return false
+end
 
+local function MoveObject(v, pressedCF, i, pile, destOverride)
     if isStopped() then
-        return
+        return nil
     end
 
-    if v and v.Parent and target and target.Parent then
-        local destPos = destOverride
-        if not destPos then
-            if pile then
-                destPos = (pressedCF * CFrame.new(0, 0.08 * (i - 1), 3)).Position
-            else
-                return
-            end
-        end
-        destPos = snapOntoPlot(destPos, activePlot, activeSpacing)
-        placeLogStanding(v, target, destPos, not pile, pressedCF)
-        if v.Parent then
-            settleModel(v)
-        end
-        releaseDrag()
+    local target = dragTarget(v)
+    if not target then
+        return false
     end
+
+    if not approachItem(target, pressedCF) then
+        if isStopped() then
+            return nil
+        end
+        return false
+    end
+
+    if not claimDrag(v, pile) then
+        releaseDrag()
+        if isStopped() then
+            return nil
+        end
+        return false
+    end
+
+    if isStopped() or not (v.Parent and target.Parent) then
+        releaseDrag()
+        return nil
+    end
+
+    local destPos = destOverride
+    if not destPos then
+        if pile then
+            destPos = (pressedCF * CFrame.new(0, 0.08 * (i - 1), 3)).Position
+        else
+            releaseDrag()
+            return false
+        end
+    end
+    destPos = snapOntoPlot(destPos, activePlot, activeSpacing)
+    placeLogStanding(v, target, destPos, not pile, pressedCF)
+    if v.Parent then
+        settleModel(v)
+    end
+
+    local holdUntil = tick() + HOLD_BEFORE_RELEASE
+    while tick() < holdUntil do
+        if isStopped() or not v.Parent then
+            break
+        end
+        pcall(function()
+            ClientIsDragging:FireServer(v)
+        end)
+        task.wait()
+    end
+    releaseDrag()
 
     if not isStopped() then
         task.wait(if pile then PILE_POST_DELAY else POST_OBJECT_DELAY)
     end
+    return v.Parent ~= nil
 end
 
 local function objectMatch(v)
@@ -1500,20 +1560,46 @@ local function RunPass()
         return
     end
 
-    local jobs = {}
-    for _, v in pairs(models:GetChildren()) do
+    local matches = {}
+    for _, v in ipairs(models:GetChildren()) do
         if v:FindFirstChild("Owner") and plotTarget.ownerIs(v.Owner.Value, ownerPlayer) then
             local ok, label = objectIsSelected(v)
-            if ok then
-                table.insert(jobs, {
+            if ok and dragTarget(v) then
+                table.insert(matches, {
                     model = v,
                     label = label,
                     isLog = shouldGrid(v),
                 })
-                if logLimit and #jobs >= logLimit then
-                    break
-                end
             end
+        end
+    end
+
+    local alive = {}
+    for _, job in ipairs(matches) do
+        alive[job.model] = true
+    end
+    for model in pairs(cycleDone) do
+        if not alive[model] then
+            cycleDone[model] = nil
+        end
+    end
+
+    local pending = {}
+    for _, job in ipairs(matches) do
+        if not cycleDone[job.model] then
+            table.insert(pending, job)
+        end
+    end
+    if #pending == 0 and #matches > 0 then
+        table.clear(cycleDone)
+        pending = matches
+    end
+
+    local jobs = pending
+    if logLimit and #pending > logLimit then
+        jobs = {}
+        for i = 1, logLimit do
+            jobs[i] = pending[i]
         end
     end
 
@@ -1531,7 +1617,7 @@ local function RunPass()
     local pileI = 1
     local moved = 0
 
-    for _, job in ipairs(jobs) do
+    for index, job in ipairs(jobs) do
         if isStopped() then
             if root and root.Parent then
                 releaseDrag()
@@ -1551,9 +1637,20 @@ local function RunPass()
             pileI += 1
         end
         dest = snapOntoPlot(dest, activePlot, activeSpacing)
-        setStatus(("Moving %s (%d/%d)"):format(job.label, moved + 1, #jobs))
-        MoveObject(job.model, pressedCF, moved + 1, pile, dest)
-        moved += 1
+        setStatus(("Moving %s (%d/%d)"):format(job.label, index, #jobs))
+        local placed = MoveObject(job.model, pressedCF, index, pile, dest)
+        if placed == nil or isStopped() then
+            if root and root.Parent then
+                releaseDrag()
+                root.CFrame = pressedCF
+            end
+            setStatus("Stopped")
+            return
+        end
+        cycleDone[job.model] = true
+        if placed then
+            moved += 1
+        end
     end
 
     if root and root.Parent then
@@ -1562,7 +1659,7 @@ local function RunPass()
     end
 
     if moved == 0 then
-        setStatus("No matching items")
+        setStatus(if #jobs == 0 then "No matching items" else "Couldn't grab")
     else
         setStatus(("Moved %d item%s"):format(moved, if moved == 1 then "" else "s"))
     end
