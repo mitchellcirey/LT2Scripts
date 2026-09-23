@@ -30,6 +30,7 @@ local PLOT_MIN = 25
 local PLOT_MAX = 2000
 local LOG_GAP = 2
 local MIN_LOG_SPACING = 6
+local PLANK_GAP = 0.85
 
 local function item(id, label, keys, rare)
     return {
@@ -964,13 +965,41 @@ local function dragTarget(model)
         or model:FindFirstChildWhichIsA("BasePart", true)
 end
 
+local function isPlank(model)
+    return model and model.Name == "Plank"
+end
+
+local function plankStandYaw(plot)
+    local yaw = 0
+    if plot and plot.cf then
+        local _, y = plot.cf:ToEulerAnglesYXZ()
+        yaw = y
+    end
+    return yaw + math.rad(90)
+end
+
 local function logSpacingFor(models)
-    local spacing = MIN_LOG_SPACING
+    local planksOnly = #models > 0
+    for _, model in ipairs(models) do
+        if not isPlank(model) then
+            planksOnly = false
+            break
+        end
+    end
+
+    local spacing = if planksOnly then 0 else MIN_LOG_SPACING
+    local gap = if planksOnly then PLANK_GAP else LOG_GAP
     for _, model in ipairs(models) do
         local target = dragTarget(model)
         if target then
-            spacing = math.max(spacing, standingFootprint(target) + LOG_GAP)
+            local footprint = if planksOnly
+                then math.max(target.Size.X, target.Size.Z)
+                else standingFootprint(target)
+            spacing = math.max(spacing, footprint + gap)
         end
+    end
+    if spacing <= 0 then
+        spacing = if planksOnly then 2 else MIN_LOG_SPACING
     end
     return spacing
 end
@@ -980,7 +1009,7 @@ local function buildLogSlots(pressedCF, count, plot, spacing)
     if count <= 0 then
         return slots
     end
-    spacing = math.max(spacing or MIN_LOG_SPACING, MIN_LOG_SPACING)
+    spacing = math.max(spacing or MIN_LOG_SPACING, 1)
     if not plot then
         return slots
     end
@@ -1082,7 +1111,9 @@ local function placeLogStanding(model, target, destPos, standUp, pressedCF)
         destPos = Vector3.new(destPos.X, gy + target.Size.Y * 0.5 + 0.15, destPos.Z)
 
         local yaw = 0
-        if pressedCF then
+        if isPlank(model) then
+            yaw = plankStandYaw(activePlot)
+        elseif pressedCF then
             _, yaw = pressedCF:ToEulerAnglesYXZ()
         end
         local desiredMain = CFrame.new(destPos) * CFrame.Angles(0, yaw, 0)
@@ -1512,10 +1543,6 @@ local function itemsForCategory(catId)
         end
     end
     return {}
-end
-
-local function isPlank(model)
-    return model and model.Name == "Plank"
 end
 
 local function shouldGrid(model)
