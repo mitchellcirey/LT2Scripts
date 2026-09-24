@@ -9,6 +9,8 @@ local ReplicatedStorage = Services.ReplicatedStorage
 local Workspace         = Services.Workspace
 local UserInputService  = Services.UserInputService
 local ContextActionService = Services.ContextActionService
+local RunService        = Services.RunService
+local Lighting          = Services.Lighting
 
 local Player            = Players.LocalPlayer
 local ClientIsDragging  = ReplicatedStorage:WaitForChild("Interaction"):WaitForChild("ClientIsDragging")
@@ -21,13 +23,14 @@ local LOG_GAP = 2
 local PLANK_GAP = 0.85
 local GRAB_RANGE = 22
 local OWNER_TIMEOUT = 1
-local STEP_STUDS = 75
-local STEP_HOLD = 0.16
+local MOVE_SPEED = 1200
 local AMOUNT_MAX = 50
 local PILE_GAP = 0.45
 local PILE_MAX_HEIGHT = 28
 
 local CLICK_SELECT_ACTION = "LT2DuperClickSelect"
+local CLICK_TP_ACTION = "LT2DuperClickTp"
+local LIGHTING_STEP = "LT2DuperLighting"
 local OUTLINE_COLOR = Color3.fromRGB(0, 255, 255)
 
 local selected = {}
@@ -40,6 +43,68 @@ local outlineFolder
 local outlines = {}
 local outlineConns = {}
 local outlineWatch
+
+local savedLighting
+
+local function applyLockedLighting()
+    Lighting.ClockTime = 12
+    Lighting.Brightness = 2
+    Lighting.Ambient = Color3.fromRGB(255, 255, 255)
+    Lighting.OutdoorAmbient = Color3.fromRGB(255, 255, 255)
+    Lighting.GlobalShadows = false
+    Lighting.FogStart = 0
+    Lighting.FogEnd = 1000000
+    local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
+    if atmosphere then
+        atmosphere.Density = 0
+        atmosphere.Haze = 0
+    end
+end
+
+local function lockLighting()
+    if not savedLighting then
+        local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
+        savedLighting = {
+            ClockTime = Lighting.ClockTime,
+            Brightness = Lighting.Brightness,
+            Ambient = Lighting.Ambient,
+            OutdoorAmbient = Lighting.OutdoorAmbient,
+            GlobalShadows = Lighting.GlobalShadows,
+            FogStart = Lighting.FogStart,
+            FogEnd = Lighting.FogEnd,
+            Atmosphere = atmosphere,
+            Density = atmosphere and atmosphere.Density,
+            Haze = atmosphere and atmosphere.Haze,
+        }
+    end
+    pcall(function()
+        RunService:UnbindFromRenderStep(LIGHTING_STEP)
+    end)
+    applyLockedLighting()
+    RunService:BindToRenderStep(LIGHTING_STEP, Enum.RenderPriority.Last.Value, applyLockedLighting)
+end
+
+local function unlockLighting()
+    pcall(function()
+        RunService:UnbindFromRenderStep(LIGHTING_STEP)
+    end)
+    local saved = savedLighting
+    savedLighting = nil
+    if not saved then
+        return
+    end
+    Lighting.ClockTime = saved.ClockTime
+    Lighting.Brightness = saved.Brightness
+    Lighting.Ambient = saved.Ambient
+    Lighting.OutdoorAmbient = saved.OutdoorAmbient
+    Lighting.GlobalShadows = saved.GlobalShadows
+    Lighting.FogStart = saved.FogStart
+    Lighting.FogEnd = saved.FogEnd
+    if saved.Atmosphere and saved.Atmosphere.Parent then
+        saved.Atmosphere.Density = saved.Density
+        saved.Atmosphere.Haze = saved.Haze
+    end
+end
 
 local function prettyName(raw)
     return (tostring(raw):gsub("(%l)(%u)", "%1 %2"):gsub("_", " "))
@@ -272,41 +337,78 @@ local function weOwn(part)
 end
 
 local function nudgeRoot(goal)
-    local guard = 0
-    while guard < 40 do
-        guard += 1
-        if isStopped() then
-            return false
-        end
-        local hrp = playerRoot()
-        if not hrp then
-            return false
-        end
-        local delta = goal - hrp.Position
-        if delta.Magnitude <= 3 then
-            hrp.AssemblyLinearVelocity = Vector3.zero
-            hrp.AssemblyAngularVelocity = Vector3.zero
-            hrp.CFrame = CFrame.new(goal)
-            return true
-        end
-        local step = if delta.Magnitude > STEP_STUDS then delta.Unit * STEP_STUDS else delta
-        local nextPos = hrp.Position + step
-        local untilT = tick() + STEP_HOLD
-        while tick() < untilT do
-            if isStopped() then
-                return false
+    local char = Player.Character
+    local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+    local savedStand = humanoid and humanoid.PlatformStand
+    local savedCollide = {}
+    if char then
+        for _, inst in ipairs(char:GetDescendants()) do
+            if inst:IsA("BasePart") then
+                savedCollide[inst] = inst.CanCollide
+                inst.CanCollide = false
             end
-            hrp = playerRoot()
-            if not hrp then
-                return false
-            end
-            hrp.AssemblyLinearVelocity = Vector3.zero
-            hrp.AssemblyAngularVelocity = Vector3.zero
-            hrp.CFrame = CFrame.new(nextPos)
-            task.wait()
         end
     end
-    return false
+    if humanoid then
+        humanoid.PlatformStand = true
+    end
+
+    local function restore()
+        if humanoid and humanoid.Parent then
+            humanoid.PlatformStand = savedStand or false
+        end
+        for part, collide in pairs(savedCollide) do
+            if part.Parent then
+                part.CanCollide = collide
+            end
+        end
+    end
+
+    local hrp = playerRoot()
+    if not hrp then
+        restore()
+        return false
+    end
+    local deadline = tick() + math.max(0.45, (goal - hrp.Position).Magnitude / MOVE_SPEED + 0.35)
+    local arrived = false
+    while tick() < deadline do
+        if isStopped() then
+            break
+        end
+        hrp = playerRoot()
+        if not hrp then
+            break
+        end
+        local delta = goal - hrp.Position
+        local yaw = flatYaw(hrp.CFrame)
+        if delta.Magnitude <= 2 then
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            hrp.AssemblyAngularVelocity = Vector3.zero
+            hrp.CFrame = CFrame.new(goal) * CFrame.Angles(0, yaw, 0)
+            arrived = true
+            break
+        end
+        local dt = RunService.Heartbeat:Wait()
+        hrp = playerRoot()
+        if not hrp or isStopped() then
+            break
+        end
+        delta = goal - hrp.Position
+        if delta.Magnitude <= 2 then
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            hrp.AssemblyAngularVelocity = Vector3.zero
+            hrp.CFrame = CFrame.new(goal) * CFrame.Angles(0, flatYaw(hrp.CFrame), 0)
+            arrived = true
+            break
+        end
+        local step = math.min(delta.Magnitude, MOVE_SPEED * math.clamp(dt, 1 / 240, 1 / 20))
+        hrp.AssemblyLinearVelocity = Vector3.zero
+        hrp.AssemblyAngularVelocity = Vector3.zero
+        hrp.CFrame = CFrame.new(hrp.Position + delta.Unit * step) * CFrame.Angles(0, flatYaw(hrp.CFrame), 0)
+    end
+
+    restore()
+    return arrived
 end
 
 local function parkAtHome()
@@ -328,9 +430,6 @@ local function standNear(target)
         return false
     end
     local delta = target.Position - hrp.Position
-    if delta.Magnitude <= GRAB_RANGE then
-        return true
-    end
     local flat = Vector3.new(delta.X, 0, delta.Z)
     local dir = if flat.Magnitude > 0.1 then flat.Unit else Vector3.new(0, 0, -1)
     local stand = target.Position - dir * 8 + Vector3.new(0, 3, 0)
@@ -340,16 +439,35 @@ local function standNear(target)
         hrp.CFrame = CFrame.new(stand)
         return true
     end
+    if delta.Magnitude <= 8 then
+        hrp.AssemblyLinearVelocity = Vector3.zero
+        hrp.AssemblyAngularVelocity = Vector3.zero
+        return true
+    end
     return nudgeRoot(stand)
 end
 
 local function claimDrag(model, target)
+    if isStopped() or not (model.Parent and target.Parent) then
+        return nil
+    end
+    if not standNear(target) then
+        return false
+    end
     local deadline = tick() + OWNER_TIMEOUT
     while true do
         if isStopped() or not (model.Parent and target.Parent) then
             return nil
         end
-        standNear(target)
+        local hrp = playerRoot()
+        if hrp and (target.Position - hrp.Position).Magnitude > 12 then
+            if not standNear(target) then
+                return false
+            end
+        elseif hrp then
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            hrp.AssemblyAngularVelocity = Vector3.zero
+        end
         local ok, err = pcall(function()
             ClientIsDragging:FireServer(model)
         end)
@@ -361,12 +479,10 @@ local function claimDrag(model, target)
         if owned == true then
             return true
         end
+        hrp = playerRoot()
         if tick() >= deadline then
-            if owned == nil then
-                local hrp = playerRoot()
-                if hrp and (target.Position - hrp.Position).Magnitude <= GRAB_RANGE + 2 then
-                    return true
-                end
+            if hrp and (target.Position - hrp.Position).Magnitude <= GRAB_RANGE then
+                return true
             end
             return false
         end
@@ -552,10 +668,11 @@ local function ownsModel(model)
         return true
     end
     if typeof(value) == "Instance" then
-        return value == Player or value.Name == Player.Name
+        return value:IsA("Player") and value.UserId == Player.UserId
     end
     if type(value) == "string" then
-        return string.lower(value) == string.lower(Player.Name)
+        local lower = string.lower(value)
+        return lower == string.lower(Player.Name) or lower == string.lower(Player.DisplayName)
     end
     if type(value) == "number" then
         return value == Player.UserId
@@ -564,30 +681,140 @@ local function ownsModel(model)
 end
 
 local function isOwnedLand(inst)
-    if inst:IsA("BasePart") and isLandPart(inst) then
-        return true
+    if inst:IsA("BasePart") then
+        return isLandPart(inst)
     end
     if not inst:IsA("Model") then
         return false
     end
-    for _, part in ipairs(inst:GetDescendants()) do
-        if part:IsA("BasePart") and isLandPart(part) then
+    for _, child in ipairs(inst:GetChildren()) do
+        if child:IsA("BasePart") and isLandPart(child) then
             return true
         end
     end
     return false
 end
 
+local function isPlotModel(inst)
+    local properties = Workspace:FindFirstChild("Properties")
+    return properties ~= nil and inst.Parent == properties
+end
+
+local cachedLands = {}
+local landPlotCount = 0
+
+local function log(message)
+    print("[LOT] " .. tostring(message))
+end
+
+local function logError(where, err)
+    warn("[LOT] " .. tostring(where) .. "\n" .. tostring(err))
+end
+
+local function updateLandCache()
+    table.clear(cachedLands)
+    landPlotCount = 0
+    local properties = Workspace:FindFirstChild("Properties")
+    if not properties then
+        return
+    end
+    for _, child in ipairs(properties:GetChildren()) do
+        if ownsModel(child) then
+            landPlotCount += 1
+            for _, part in ipairs(child:GetChildren()) do
+                if part:IsA("BasePart") and isLandPart(part) then
+                    table.insert(cachedLands, part)
+                end
+            end
+        end
+    end
+end
+
+local function positionOnLand(pos)
+    for _, part in ipairs(cachedLands) do
+        if part.Parent then
+            local localPos = part.CFrame:PointToObjectSpace(pos)
+            local half = part.Size * 0.5
+            if math.abs(localPos.X) <= half.X + 3
+                and math.abs(localPos.Z) <= half.Z + 3
+                and localPos.Y >= -half.Y - 10
+                and localPos.Y <= half.Y + 80
+            then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function footprintOnLand(cf, size)
+    if typeof(cf) ~= "CFrame" or typeof(size) ~= "Vector3" then
+        return false
+    end
+    local half = size * 0.5
+    for _, x in ipairs({ -half.X, 0, half.X }) do
+        for _, y in ipairs({ -half.Y, 0, half.Y }) do
+            for _, z in ipairs({ -half.Z, 0, half.Z }) do
+                if positionOnLand(cf:PointToWorldSpace(Vector3.new(x, y, z))) then
+                    return true
+                end
+            end
+        end
+    end
+    return false
+end
+
+local function overlapsLand(inst)
+    if inst:IsA("BasePart") then
+        return footprintOnLand(inst.CFrame, inst.Size)
+    end
+    local target = dragTarget(inst)
+    if target and footprintOnLand(target.CFrame, target.Size) then
+        return true
+    end
+    if inst:IsA("Model") then
+        local ok, cf, size = pcall(function()
+            return inst:GetBoundingBox()
+        end)
+        if ok and footprintOnLand(cf, size) then
+            return true
+        end
+    end
+    return false
+end
+
+local function onPlayerPlot(inst)
+    if not inst or inst == Player or inst == Player.Character or isPlotModel(inst) then
+        return false
+    end
+    local properties = Workspace:FindFirstChild("Properties")
+    if properties then
+        local current = inst
+        while current and current ~= properties and current ~= Workspace do
+            if current.Parent == properties then
+                return ownsModel(current)
+            end
+            current = current.Parent
+        end
+    end
+    local target = dragTarget(inst)
+    if not target then
+        return false
+    end
+    return overlapsLand(inst)
+end
+
 local function forEachOwned(callback)
+    updateLandCache()
     local seen = {}
     local function ownedRoot(inst)
         local root = inst
         local parent = inst.Parent
         while parent and parent ~= Workspace do
-            if parent.Name == "PlayerModels" then
+            if parent.Name == "PlayerModels" or isPlotModel(parent) then
                 break
             end
-            if ownsModel(parent) and not isOwnedLand(parent) then
+            if ownsModel(parent) then
                 root = parent
             end
             parent = parent.Parent
@@ -599,7 +826,7 @@ local function forEachOwned(callback)
         if not inst or seen[inst] or inst == Player or inst == Player.Character or inst == Workspace then
             return
         end
-        if not ownsModel(inst) or isOwnedLand(inst) or not dragTarget(inst) then
+        if not ownsModel(inst) or isOwnedLand(inst) or isPlotModel(inst) or not dragTarget(inst) or not onPlayerPlot(inst) then
             return
         end
         seen[inst] = true
@@ -624,10 +851,10 @@ local function ownedItemFromInstance(inst)
     local found = nil
     local current = inst
     while current and current ~= Workspace do
-        if current.Name == "PlayerModels" then
+        if current.Name == "PlayerModels" or isPlotModel(current) then
             break
         end
-        if ownsModel(current) and not isOwnedLand(current) and dragTarget(current) then
+        if ownsModel(current) and dragTarget(current) and onPlayerPlot(current) then
             found = current
         end
         current = current.Parent
@@ -682,7 +909,9 @@ local function refreshOwnedSnapshot()
 
     local counts = {}
     local unique = {}
+    local onPlot = 0
     forEachOwned(function(model)
+        onPlot += 1
         local form, value = objectMatch(model)
         if form and value ~= nil and tostring(value) ~= "" then
             value = tostring(value)
@@ -703,6 +932,7 @@ local function refreshOwnedSnapshot()
             end
         end
     end)
+    log(("Plots %d, squares %d, items %d, types %d"):format(landPlotCount, #cachedLands, onPlot, #allItems))
 
     local buckets = {
         Logs = {},
@@ -840,6 +1070,64 @@ local function labelForHit(inst)
         return displayLabel(entry)
     end
     return prettyName(match.value) .. " (" .. kindFor(match.form, match.value) .. ")"
+end
+
+local function ownerDisplayName(owner)
+    if not (owner and owner:IsA("ValueBase")) then
+        return nil
+    end
+    local value = owner.Value
+    if typeof(value) == "Instance" then
+        if value:IsA("Player") then
+            if value.DisplayName ~= "" then
+                return value.DisplayName
+            end
+            return value.Name
+        end
+        return value.Name
+    end
+    if type(value) == "number" then
+        local plr = Players:GetPlayerByUserId(value)
+        if plr and plr.DisplayName ~= "" then
+            return plr.DisplayName
+        end
+        return if plr then plr.Name else tostring(value)
+    end
+    if type(value) == "string" and value ~= "" then
+        local asNumber = tonumber(value)
+        if asNumber then
+            local plr = Players:GetPlayerByUserId(asNumber)
+            if plr then
+                if plr.DisplayName ~= "" then
+                    return plr.DisplayName
+                end
+                return plr.Name
+            end
+        end
+        return value
+    end
+    return nil
+end
+
+local function hoverLines(inst)
+    local label = labelForHit(inst)
+    local ownerName
+    local current = inst
+    while current and current ~= Workspace do
+        if current.Name == "PlayerModels" or isPlotModel(current) then
+            break
+        end
+        local owner = current:FindFirstChild("Owner")
+        if owner and owner:IsA("ValueBase") then
+            ownerName = ownerDisplayName(owner)
+            break
+        end
+        current = current.Parent
+    end
+    if label and ownerName then
+        return label .. "\n" .. ownerName
+    end
+    return label or ownerName
 end
 
 local function selectTypeFromHit(inst)
@@ -1131,6 +1419,8 @@ local function buildInterface()
             outlineWatch = nil
         end
         ContextActionService:UnbindAction(CLICK_SELECT_ACTION)
+        ContextActionService:UnbindAction(CLICK_TP_ACTION)
+        unlockLighting()
         table.clear(outlines)
         for model, conn in pairs(outlineConns) do
             outlineConns[model] = nil
@@ -1138,6 +1428,8 @@ local function buildInterface()
         end
         outlineFolder = nil
     end)
+
+    lockLighting()
 
     local toggleKey = Enum.KeyCode.T
     local listeningForKey = false
@@ -1528,6 +1820,7 @@ local function buildInterface()
         TextSize = 15,
         TextColor3 = Color3.fromRGB(230, 230, 230),
         TextXAlignment = Enum.TextXAlignment.Left,
+        TextYAlignment = Enum.TextYAlignment.Top,
         Visible = false,
         ZIndex = 20,
     }, screenGui)
@@ -1558,12 +1851,48 @@ local function buildInterface()
             and y >= pos.Y and y <= pos.Y + size.Y
     end
 
+    local function onClickTeleport(_, state)
+        if state ~= Enum.UserInputState.Begin then
+            return Enum.ContextActionResult.Pass
+        end
+        if not (UserInputService:IsKeyDown(Enum.KeyCode.LeftControl)
+            or UserInputService:IsKeyDown(Enum.KeyCode.RightControl))
+        then
+            return Enum.ContextActionResult.Pass
+        end
+        if pointerOverWindow() or UserInputService:GetFocusedTextBox() then
+            return Enum.ContextActionResult.Pass
+        end
+        local mouse = Player:GetMouse()
+        if not (mouse.Target and mouse.Hit) then
+            return Enum.ContextActionResult.Pass
+        end
+        local hrp = playerRoot()
+        if not hrp then
+            return Enum.ContextActionResult.Pass
+        end
+        hrp.AssemblyLinearVelocity = Vector3.zero
+        hrp.AssemblyAngularVelocity = Vector3.zero
+        hrp.CFrame = CFrame.new(mouse.Hit.Position + Vector3.new(0, 3, 0))
+            * CFrame.Angles(0, flatYaw(hrp.CFrame), 0)
+        return Enum.ContextActionResult.Sink
+    end
+
+    ContextActionService:UnbindAction(CLICK_TP_ACTION)
+    ContextActionService:BindActionAtPriority(
+        CLICK_TP_ACTION,
+        onClickTeleport,
+        false,
+        Enum.ContextActionPriority.High.Value + 1,
+        Enum.UserInputType.MouseButton1
+    )
+
     local function updateHoverHint()
-        if not (clickSelect and hoverHint and hoverHint.Parent) then
+        if not (hoverHint and hoverHint.Parent) then
             return
         end
         local target = Player:GetMouse().Target
-        local label = if target then labelForHit(target) else nil
+        local label = if target then hoverLines(target) else nil
         if not label or pointerOverWindow() or UserInputService:GetFocusedTextBox() then
             hoverHint.Visible = false
             return
@@ -1612,7 +1941,7 @@ local function buildInterface()
     end)
 
     local function onClickSelect(_, state)
-        if state ~= Enum.UserInputState.Begin or not clickSelect then
+        if state ~= Enum.UserInputState.Begin or not clickSelect or not (window and window.Visible) then
             return Enum.ContextActionResult.Pass
         end
         if pointerOverWindow() or UserInputService:GetFocusedTextBox() then
@@ -1632,7 +1961,6 @@ local function buildInterface()
     local function applyClickSelect()
         clickBtn.Text = if clickSelect then "On" else "Off"
         ContextActionService:UnbindAction(CLICK_SELECT_ACTION)
-        setHoverTracking(clickSelect)
         if not clickSelect then
             return
         end
@@ -1650,6 +1978,7 @@ local function buildInterface()
         applyClickSelect()
         saveConfig()
     end)
+    setHoverTracking(true)
     applyClickSelect()
 
     local searchQuery = ""
@@ -1892,13 +2221,22 @@ local function buildInterface()
         if statusLabel and statusLabel.Parent then
             statusLabel.Text = text
         end
+        if type(text) == "string" and string.sub(text, 1, 7) ~= "Moving " then
+            log(text)
+        end
     end
 
     local function refreshPlot()
-        refreshOwnedSnapshot()
-        rebuildList()
-        syncOutlines()
-        setStatus("Idle")
+        local ok, err = xpcall(function()
+            refreshOwnedSnapshot()
+            rebuildList()
+            syncOutlines()
+            setStatus("Idle")
+        end, debug.traceback)
+        if not ok then
+            logError("Refresh failed", err)
+            setStatus("Error")
+        end
     end
 
     refreshBtn.MouseButton1Click:Connect(refreshPlot)
@@ -1947,14 +2285,15 @@ local function buildInterface()
         abort = false
         runBtn.Text = "..."
         startRunTimer()
-        local ok, err = pcall(RunPass)
+        log("Run")
+        local ok, err = xpcall(RunPass, debug.traceback)
         stopRunTimer()
         parkAtHome()
         if isStopped() then
             setStatus("Stopped")
         elseif not ok then
             setStatus("Error")
-            warn("[LOT] " .. tostring(err))
+            logError("Run failed", err)
         end
         busy = false
         if runBtn and runBtn.Parent then
