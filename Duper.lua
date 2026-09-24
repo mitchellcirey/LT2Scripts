@@ -221,6 +221,7 @@ local function isPlank(model)
 end
 
 local PLANK_STAND_LENGTH = 5
+local SHORT_LAYER_SIDE = 4
 
 local function plankLength(model)
     local part = model and (model:FindFirstChild("WoodSection") or dragTarget(model))
@@ -232,6 +233,10 @@ end
 
 local function standsUp(model)
     return isPlank(model) and plankLength(model) > PLANK_STAND_LENGTH
+end
+
+local function isShortPlank(model)
+    return isPlank(model) and not standsUp(model)
 end
 
 local function itemSpacing(models)
@@ -258,17 +263,18 @@ local function facingCF(cf)
     return CFrame.new(cf.Position) * CFrame.Angles(0, flatYaw(cf), 0)
 end
 
-local function buildGridSlots(originCF, count, spacing)
+local function buildGridSlots(originCF, count, spacing, xOffset)
     local slots = {}
     if count <= 0 then
         return slots
     end
     spacing = math.max(spacing or 2, 1)
+    xOffset = xOffset or 0
     local columns = math.max(1, math.ceil(math.sqrt(count)))
     for i = 0, count - 1 do
         local col = i % columns
         local row = math.floor(i / columns)
-        local localPos = Vector3.new((col - (columns - 1) * 0.5) * spacing, 0, -(6 + row * spacing))
+        local localPos = Vector3.new(xOffset + (col - (columns - 1) * 0.5) * spacing, 0, -(6 + row * spacing))
         table.insert(slots, originCF:PointToWorldSpace(localPos))
     end
     return slots
@@ -1305,26 +1311,71 @@ local function RunPass()
     end
 
     local standModels = {}
+    local shortModels = {}
     local pileModels = {}
     for _, job in ipairs(pending) do
         if not pileItems and standsUp(job.model) then
             table.insert(standModels, job.model)
+        elseif isShortPlank(job.model) then
+            table.insert(shortModels, job.model)
         else
             table.insert(pileModels, job.model)
         end
     end
-    local standSlots = buildGridSlots(originCF, #standModels, itemSpacing(standModels))
+    local shortSpacing = 2
+    for _, model in ipairs(shortModels) do
+        shortSpacing = math.max(shortSpacing, plankLength(model) + 0.6)
+    end
+    local standSlots = buildGridSlots(originCF, #standModels, itemSpacing(standModels), 0)
     local pileSlots = buildPileSlots(originCF, pileModels)
+    local shortSlots = {}
+    local groundIgnore = {}
+    if Player.Character then
+        table.insert(groundIgnore, Player.Character)
+    end
+    local playerModels = Workspace:FindFirstChild("PlayerModels")
+    if playerModels then
+        table.insert(groundIgnore, playerModels)
+    end
+    if #shortModels > 0 then
+        local side = if #shortModels >= SHORT_LAYER_SIDE * SHORT_LAYER_SIDE
+            then SHORT_LAYER_SIDE
+            else math.max(1, math.ceil(math.sqrt(#shortModels)))
+        local perLayer = side * side
+        local thickness = 0.4
+        for _, model in ipairs(shortModels) do
+            thickness = math.max(thickness, restHeight(model))
+        end
+        local probe = originCF:PointToWorldSpace(Vector3.new(10, 0, -6))
+        local gy = groundYAt(probe, groundIgnore)
+        for i = 0, #shortModels - 1 do
+            local layer = math.floor(i / perLayer)
+            local index = i % perLayer
+            local col = index % side
+            local row = math.floor(index / side)
+            local localPos = Vector3.new(10 + (col - (side - 1) * 0.5) * shortSpacing, 0, -(6 + row * shortSpacing))
+            local world = originCF:PointToWorldSpace(localPos)
+            local y = gy + thickness * (layer + 0.5) + 0.15
+            shortSlots[i + 1] = Vector3.new(world.X, y, world.Z)
+        end
+    end
 
     local queue = {}
     local standI = 1
+    local shortI = 1
     local pileI = 1
     for _, job in ipairs(pending) do
         local stand = not pileItems and standsUp(job.model)
-        local dest = if stand then standSlots[standI] else pileSlots[pileI]
+        local short = isShortPlank(job.model)
+        local dest
         if stand then
+            dest = standSlots[standI]
             standI += 1
+        elseif short then
+            dest = shortSlots[shortI]
+            shortI += 1
         else
+            dest = pileSlots[pileI]
             pileI += 1
         end
         if dest then
