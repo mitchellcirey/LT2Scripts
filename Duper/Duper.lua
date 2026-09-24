@@ -34,6 +34,7 @@ local keyIndex = {}
 local allItems = {}
 local logLimit = nil
 local pileItems = false
+local standVertical = true
 local clickSelect = false
 local outlineFolder
 local outlines = {}
@@ -174,11 +175,11 @@ local function plankLength(model)
 end
 
 local function standsUp(model)
-    return isPlank(model) and plankLength(model) > PLANK_STAND_LENGTH
+    return standVertical and isPlank(model)
 end
 
 local function isShortPlank(model)
-    return isPlank(model) and not standsUp(model)
+    return isPlank(model) and not standVertical and plankLength(model) <= PLANK_STAND_LENGTH
 end
 
 local function itemSpacing(models)
@@ -1492,6 +1493,7 @@ local function buildInterface(parent, ctx)
             selected = picked,
             amount = logLimit or "unlimited",
             pile = pileItems,
+            vertical = standVertical,
             clickSelect = clickSelect,
         }
         local encodedOk, encoded = pcall(function()
@@ -1529,6 +1531,9 @@ local function buildInterface(parent, ctx)
         end
         if type(savedConfig.pile) == "boolean" then
             pileItems = savedConfig.pile
+        end
+        if type(savedConfig.vertical) == "boolean" then
+            standVertical = savedConfig.vertical
         end
         if type(savedConfig.clickSelect) == "boolean" then
             clickSelect = savedConfig.clickSelect
@@ -1754,6 +1759,35 @@ local function buildInterface(parent, ctx)
         Position = UDim2.fromOffset(0, 156),
         BackgroundTransparency = 1,
         Font = Enum.Font.SourceSans,
+        Text = "Vertical",
+        TextSize = 14,
+        TextColor3 = Color3.fromRGB(160, 160, 160),
+        TextXAlignment = Enum.TextXAlignment.Left,
+    }, settingsPage)
+
+    local verticalBtn = make("TextButton", {
+        Size = UDim2.fromOffset(120, 22),
+        Position = UDim2.fromOffset(0, 176),
+        BackgroundColor3 = Color3.fromRGB(58, 58, 58),
+        BorderSizePixel = 0,
+        Font = Enum.Font.SourceSans,
+        Text = if standVertical then "On" else "Off",
+        TextSize = 15,
+        TextColor3 = Color3.fromRGB(230, 230, 230),
+        AutoButtonColor = false,
+    }, settingsPage)
+
+    verticalBtn.MouseButton1Click:Connect(function()
+        standVertical = not standVertical
+        verticalBtn.Text = if standVertical then "On" else "Off"
+        saveConfig()
+    end)
+
+    make("TextLabel", {
+        Size = UDim2.new(1, 0, 0, 16),
+        Position = UDim2.fromOffset(0, 210),
+        BackgroundTransparency = 1,
+        Font = Enum.Font.SourceSans,
         Text = "Click select",
         TextSize = 14,
         TextColor3 = Color3.fromRGB(160, 160, 160),
@@ -1762,7 +1796,7 @@ local function buildInterface(parent, ctx)
 
     local clickBtn = make("TextButton", {
         Size = UDim2.fromOffset(120, 22),
-        Position = UDim2.fromOffset(0, 176),
+        Position = UDim2.fromOffset(0, 230),
         BackgroundColor3 = Color3.fromRGB(58, 58, 58),
         BorderSizePixel = 0,
         Font = Enum.Font.SourceSans,
