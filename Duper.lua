@@ -157,8 +157,81 @@ local function dragTarget(model)
         or model:FindFirstChildWhichIsA("BasePart", true)
 end
 
+local function restHeight(model)
+    local part = dragTarget(model)
+    if not (part and part:IsA("BasePart")) then
+        return 0.8
+    end
+    return math.max(0.4, math.min(part.Size.X, part.Size.Y, part.Size.Z))
+end
+
+local function laidCFrame(target, destPos, yaw)
+    local s = target.Size
+    local axes = {
+        { s.X, Vector3.xAxis },
+        { s.Y, Vector3.yAxis },
+        { s.Z, Vector3.zAxis },
+    }
+    table.sort(axes, function(a, b)
+        if a[1] ~= b[1] then
+            return a[1] < b[1]
+        end
+        return a[2].Y > b[2].Y
+    end)
+    local upLocal = axes[1][2]
+    local alongLocal = axes[3][2]
+    local rightLocal = upLocal:Cross(alongLocal)
+    if rightLocal.Magnitude < 0.05 then
+        alongLocal = axes[2][2]
+        rightLocal = upLocal:Cross(alongLocal)
+    end
+    rightLocal = rightLocal.Unit
+    local yawCF = CFrame.Angles(0, yaw, 0)
+    local worldR = CFrame.fromMatrix(Vector3.zero, yawCF.RightVector, yawCF.UpVector)
+    local localR = CFrame.fromMatrix(Vector3.zero, rightLocal, upLocal)
+    return CFrame.new(destPos) * worldR * localR:Inverse()
+end
+
+local function uprightCFrame(target, destPos, yaw)
+    local s = target.Size
+    local axes = {
+        { s.X, Vector3.xAxis },
+        { s.Y, Vector3.yAxis },
+        { s.Z, Vector3.zAxis },
+    }
+    table.sort(axes, function(a, b)
+        return a[1] > b[1]
+    end)
+    local upLocal = axes[1][2]
+    local sideLocal = axes[2][2]
+    local rightLocal = upLocal:Cross(sideLocal)
+    if rightLocal.Magnitude < 0.05 then
+        sideLocal = axes[3][2]
+        rightLocal = upLocal:Cross(sideLocal)
+    end
+    rightLocal = rightLocal.Unit
+    local yawCF = CFrame.Angles(0, yaw, 0)
+    local worldR = CFrame.fromMatrix(Vector3.zero, yawCF.RightVector, Vector3.yAxis)
+    local localR = CFrame.fromMatrix(Vector3.zero, rightLocal, upLocal)
+    return CFrame.new(destPos) * worldR * localR:Inverse(), axes[1][1]
+end
+
 local function isPlank(model)
     return model and model.Name == "Plank"
+end
+
+local PLANK_STAND_LENGTH = 5
+
+local function plankLength(model)
+    local part = model and (model:FindFirstChild("WoodSection") or dragTarget(model))
+    if not (part and part:IsA("BasePart")) then
+        return 0
+    end
+    return math.max(part.Size.X, part.Size.Y, part.Size.Z)
+end
+
+local function standsUp(model)
+    return isPlank(model) and plankLength(model) > PLANK_STAND_LENGTH
 end
 
 local function itemSpacing(models)
@@ -166,11 +239,8 @@ local function itemSpacing(models)
     for _, model in ipairs(models) do
         local target = dragTarget(model)
         if target then
-            local footprint = if isPlank(model)
-                then math.max(target.Size.X, target.Size.Z)
-                else standingFootprint(target)
             local gap = if isPlank(model) then PLANK_GAP else LOG_GAP
-            spacing = math.max(spacing, footprint + gap)
+            spacing = math.max(spacing, standingFootprint(target) + gap)
         end
     end
     return spacing
@@ -188,27 +258,18 @@ local function facingCF(cf)
     return CFrame.new(cf.Position) * CFrame.Angles(0, flatYaw(cf), 0)
 end
 
-local function buildGridSlots(originCF, count, spacing, skip)
+local function buildGridSlots(originCF, count, spacing)
     local slots = {}
     if count <= 0 then
         return slots
     end
     spacing = math.max(spacing or 2, 1)
-    skip = skip or 0
-    local columns = math.max(1, math.ceil(math.sqrt(count + skip)))
-    local index = 0
-    local made = 0
-    while made < count and index < 8000 do
-        local col = index % columns
-        local row = math.floor(index / columns)
-        index += 1
-        if skip > 0 then
-            skip -= 1
-        else
-            local localPos = Vector3.new((col - (columns - 1) * 0.5) * spacing, 0, -(6 + row * spacing))
-            table.insert(slots, originCF:PointToWorldSpace(localPos))
-            made += 1
-        end
+    local columns = math.max(1, math.ceil(math.sqrt(count)))
+    for i = 0, count - 1 do
+        local col = i % columns
+        local row = math.floor(i / columns)
+        local localPos = Vector3.new((col - (columns - 1) * 0.5) * spacing, 0, -(6 + row * spacing))
+        table.insert(slots, originCF:PointToWorldSpace(localPos))
     end
     return slots
 end
@@ -256,17 +317,16 @@ local function placeLogStanding(model, target, destPos, standUp, pressedCF)
             table.insert(ignore, playerModels)
         end
         local gy = groundYAt(destPos, ignore)
-        destPos = Vector3.new(destPos.X, gy + target.Size.Y * 0.5 + 0.15, destPos.Z)
-
-        local yaw = flatYaw(pressedCF)
-        if isPlank(model) then
-            yaw += math.rad(90)
-        end
-        local desiredMain = CFrame.new(destPos) * CFrame.Angles(0, yaw, 0)
+        local length = math.max(target.Size.X, target.Size.Y, target.Size.Z)
+        destPos = Vector3.new(destPos.X, gy + length * 0.5 + 0.15, destPos.Z)
+        local desiredMain = uprightCFrame(target, destPos, flatYaw(pressedCF))
         local pivotOffset = target.CFrame:ToObjectSpace(model:GetPivot())
         model:PivotTo(desiredMain * pivotOffset)
     else
-        model:PivotTo(model:GetPivot() + (destPos - target.Position))
+        local yaw = flatYaw(pressedCF)
+        local desiredMain = laidCFrame(target, destPos, yaw)
+        local pivotOffset = target.CFrame:ToObjectSpace(model:GetPivot())
+        model:PivotTo(desiredMain * pivotOffset)
     end
 
     settleModel(model)
@@ -555,15 +615,11 @@ local function MoveObject(v, pressedCF, i, pile, destOverride)
             task.wait()
         end
 
-        if arrivedAt(v, target, destPos) and weOwn(target) ~= false then
+        if arrivedAt(v, target, destPos) then
             releaseDrag()
-            task.wait()
-            if arrivedAt(v, target, destPos) then
-                return true
-            end
-        else
-            releaseDrag()
+            return true
         end
+        releaseDrag()
     end
 
     releaseDrag()
@@ -848,9 +904,24 @@ local function kindFor(form, value)
     return if form == "boxed" then "Boxed" else "Opened"
 end
 
+local function itemIdentity(model)
+    local form, value = objectMatch(model)
+    if not form or value == nil or tostring(value) == "" then
+        return nil
+    end
+    value = tostring(value)
+    local id = form .. ":" .. value
+    local kind = kindFor(form, value)
+    if isPlank(model) and plankLength(model) <= PLANK_STAND_LENGTH then
+        id ..= ":short"
+        kind = "Short"
+    end
+    return form, value, id, kind
+end
+
 local function groupFor(kind)
     local name = string.lower(kind or "")
-    if name == "log" then
+    if name == "log" or name == "short" then
         return "Logs"
     end
     if string.find(name, "axe", 1, true) then
@@ -881,22 +952,19 @@ local function refreshOwnedSnapshot()
     local onPlot = 0
     forEachOwned(function(model)
         onPlot += 1
-        local form, value = objectMatch(model)
-        if form and value ~= nil and tostring(value) ~= "" then
-            value = tostring(value)
-            local id = form .. ":" .. value
+        local form, value, id, kind = itemIdentity(model)
+        if form then
             counts[id] = (counts[id] or 0) + 1
             if not unique[id] then
                 unique[id] = {
                     id = id,
                     label = prettyName(value),
-                    kind = kindFor(form, value),
+                    kind = kind,
                     form = form,
                     keys = { value },
                 }
                 selected[id] = keep[id] == true
                 keyIndex[id] = unique[id]
-                keyIndex[form .. ":" .. string.lower(value)] = unique[id]
                 table.insert(allItems, unique[id])
             end
         end
@@ -929,12 +997,11 @@ local function refreshOwnedSnapshot()
 end
 
 local function objectIsSelected(model)
-    local form, value = objectMatch(model)
-    if not form or value == nil or tostring(value) == "" then
+    local form, value, id = itemIdentity(model)
+    if not form then
         return false
     end
-    value = tostring(value)
-    local entry = keyIndex[form .. ":" .. value] or keyIndex[form .. ":" .. string.lower(value)]
+    local entry = keyIndex[id]
     if entry and selected[entry.id] then
         return true, displayLabel(entry)
     end
@@ -1010,15 +1077,15 @@ local function matchHit(inst)
     if not model then
         return nil
     end
-    local form, value = objectMatch(model)
-    if not form or value == nil or tostring(value) == "" then
+    local form, value, id, kind = itemIdentity(model)
+    if not form then
         return nil
     end
-    value = tostring(value)
     return {
         form = form,
         value = value,
-        id = form .. ":" .. value,
+        id = id,
+        kind = kind,
     }
 end
 
@@ -1026,7 +1093,7 @@ local function entryForMatch(match)
     if not match then
         return nil
     end
-    return keyIndex[match.id] or keyIndex[match.form .. ":" .. string.lower(match.value)]
+    return keyIndex[match.id]
 end
 
 local function labelForHit(inst)
@@ -1038,7 +1105,7 @@ local function labelForHit(inst)
     if entry then
         return displayLabel(entry)
     end
-    return prettyName(match.value) .. " (" .. kindFor(match.form, match.value) .. ")"
+    return prettyName(match.value) .. " (" .. (match.kind or kindFor(match.form, match.value)) .. ")"
 end
 
 local function ownerDisplayName(owner)
@@ -1133,10 +1200,6 @@ local function selectTypeFromHit(inst)
     return true
 end
 
-local function shouldGrid(model)
-    return model:FindFirstChild("TreeClass") ~= nil or model:FindFirstChild("TreeClass", true) ~= nil
-end
-
 local function boundsSize(model)
     local ok, _, size = pcall(function()
         return model:GetBoundingBox()
@@ -1166,15 +1229,15 @@ local function buildPileSlots(originCF, models)
     end
 
     for _, model in ipairs(models) do
-        local size = boundsSize(model)
-        local height = math.max(size.Y, 0.8)
-        local width = math.max(size.X, size.Z, 1)
+        local part = dragTarget(model)
+        local height = restHeight(model)
+        local width = if part then standingFootprint(part) + PILE_GAP else 2
         if used > 0 and used + height > PILE_MAX_HEIGHT then
             x += columnWidth
             used = 0
             columnWidth = 0
         end
-        columnWidth = math.max(columnWidth, width + PILE_GAP)
+        columnWidth = math.max(columnWidth, width)
         local world = originCF:PointToWorldSpace(Vector3.new(x, 0, -6))
         local ground = groundYAt(Vector3.new(world.X, originCF.Position.Y, world.Z), ignore)
         table.insert(slots, Vector3.new(world.X, ground + used + height * 0.5 + 0.2, world.Z))
@@ -1208,7 +1271,6 @@ local function RunPass()
             table.insert(matches, {
                 model = v,
                 label = label,
-                isLog = shouldGrid(v),
             })
         end
     end)
@@ -1242,41 +1304,34 @@ local function RunPass()
         pending = trimmed
     end
 
-    local placedModels = {}
+    local standModels = {}
+    local pileModels = {}
     for _, job in ipairs(pending) do
-        table.insert(placedModels, job.model)
+        if not pileItems and standsUp(job.model) then
+            table.insert(standModels, job.model)
+        else
+            table.insert(pileModels, job.model)
+        end
     end
-    local spacing = if pileItems then 2 else itemSpacing(placedModels)
-    local gridSlots = buildGridSlots(originCF, if pileItems then 0 else #pending, spacing)
-    local pileSlots = buildPileSlots(originCF, if pileItems then placedModels else {})
+    local standSlots = buildGridSlots(originCF, #standModels, itemSpacing(standModels))
+    local pileSlots = buildPileSlots(originCF, pileModels)
 
     local queue = {}
-    local gridI = 1
+    local standI = 1
     local pileI = 1
     for _, job in ipairs(pending) do
-        local dest
-        local pile = pileItems or not job.isLog
-        if pileItems then
-            dest = pileSlots[pileI]
-            pileI += 1
+        local stand = not pileItems and standsUp(job.model)
+        local dest = if stand then standSlots[standI] else pileSlots[pileI]
+        if stand then
+            standI += 1
         else
-            dest = gridSlots[gridI]
-            gridI += 1
-            if not job.isLog and dest then
-                local size = boundsSize(job.model)
-                local ignore = { job.model }
-                if Player.Character then
-                    table.insert(ignore, Player.Character)
-                end
-                local gy = groundYAt(dest, ignore)
-                dest = Vector3.new(dest.X, gy + size.Y * 0.5 + 0.2, dest.Z)
-            end
+            pileI += 1
         end
         if dest then
             table.insert(queue, {
                 job = job,
                 dest = dest,
-                pile = pile,
+                pile = not stand,
             })
         end
     end
