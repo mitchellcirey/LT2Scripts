@@ -9,14 +9,14 @@ local ReplicatedStorage = Services.ReplicatedStorage
 local Workspace = Services.Workspace
 local UserInputService = Services.UserInputService
 local ContextActionService = Services.ContextActionService
-local RunService = Services.RunService
 
 local Player = Players.LocalPlayer
 local RemoteProxy = ReplicatedStorage:WaitForChild("Interaction"):WaitForChild("RemoteProxy")
 
 local CLICK_ACTION = "LT2ChopperClickSelect"
-local FIRE_CAP = 800
-local HITS_PER_SECTION = 8
+local FIRE_CAP = 4000
+local HITS_PER_SECTION = 40
+local BURST = 8
 local ADOPT_RANGE = 48
 
 local AXE_STATS = {
@@ -78,11 +78,6 @@ end
 local function playerRoot()
     local char = Player.Character
     return char and char:FindFirstChild("HumanoidRootPart")
-end
-
-local function playerHead()
-    local char = Player.Character
-    return char and char:FindFirstChild("Head")
 end
 
 local function ownsModel(model)
@@ -438,85 +433,6 @@ local function equip(tool)
     return tool.Parent == char
 end
 
-local function toolRange(tool)
-    local value = tool:FindFirstChild("Range")
-    if value and value:IsA("NumberValue") and value.Value > 1 then
-        return value.Value
-    end
-    return 16
-end
-
-local function measurePing()
-    local remote = ReplicatedStorage:FindFirstChild("TestPing")
-    if not (remote and remote:IsA("RemoteFunction")) then
-        return 0.2
-    end
-    local startedAt = tick()
-    local ok = pcall(function()
-        remote:InvokeServer()
-    end)
-    if not ok then
-        return 0.2
-    end
-    return math.clamp((tick() - startedAt) / 2, 0.05, 0.6)
-end
-
-local function withinRange(section, range)
-    local head = playerHead()
-    if not head then
-        return false
-    end
-    return (head.Position - section.Position).Magnitude <= math.max(4, range - 2)
-end
-
-local function moveTo(section, range)
-    local hrp = playerRoot()
-    local head = playerHead()
-    if not (hrp and head) then
-        return
-    end
-    local flat = Vector3.new(section.Position.X - head.Position.X, 0, section.Position.Z - head.Position.Z)
-    if flat.Magnitude < 0.05 then
-        flat = Vector3.new(1, 0, 0)
-    else
-        flat = flat.Unit
-    end
-    local gap = math.clamp(range * 0.45, 3, 8)
-    local headGoal = section.Position - flat * gap
-    local hrpGoal = headGoal + (hrp.Position - head.Position)
-    hrp.AssemblyLinearVelocity = Vector3.zero
-    hrp.AssemblyAngularVelocity = Vector3.zero
-    hrp.CFrame = CFrame.new(hrpGoal, Vector3.new(section.Position.X, hrpGoal.Y, section.Position.Z))
-end
-
-local function beginMove()
-    local saved = {}
-    local char = Player.Character
-    local humanoid = char and char:FindFirstChildOfClass("Humanoid")
-    local savedStand = humanoid and humanoid.PlatformStand
-    if char then
-        for _, inst in ipairs(char:GetDescendants()) do
-            if inst:IsA("BasePart") then
-                saved[inst] = inst.CanCollide
-                inst.CanCollide = false
-            end
-        end
-    end
-    if humanoid then
-        humanoid.PlatformStand = true
-    end
-    return function()
-        if humanoid and humanoid.Parent then
-            humanoid.PlatformStand = savedStand or false
-        end
-        for part, collide in pairs(saved) do
-            if part.Parent then
-                part.CanCollide = collide
-            end
-        end
-    end
-end
-
 local function waitFor(seconds)
     local deadline = tick() + seconds
     while tick() < deadline do
@@ -528,7 +444,7 @@ local function waitFor(seconds)
     return true
 end
 
-local function fireChop(model, section, tool, damage, cooldown)
+local function fireChop(model, section, tool, damage)
     local cut = model:FindFirstChild("CutEvent")
     local id = section:FindFirstChild("ID")
     if not (cut and id) then
@@ -545,14 +461,14 @@ local function fireChop(model, section, tool, damage, cooldown)
             faceVector = Vector3.new(0, 0, -1),
             height = height,
             hitPoints = damage,
-            cooldown = cooldown,
+            cooldown = 0,
             tool = tool,
         })
     end)
     return ok
 end
 
-local function chopWave(model, tool, damage, cooldown, range, hitsById, hits)
+local function chopWave(model, tool, damage, hitsById, hits)
     local sections = {}
     eachSection(model, function(section)
         table.insert(sections, section)
@@ -561,20 +477,19 @@ local function chopWave(model, tool, damage, cooldown, range, hitsById, hits)
         return childCount(a) < childCount(b)
     end)
     local fired = 0
-    for _, section in ipairs(sections) do
+    for _ = 1, BURST do
         if isStopped() or hits.count >= FIRE_CAP then
             break
         end
-        local idValue = section:FindFirstChild("ID")
-        if section.Parent and idValue then
-            local id = idValue.Value
-            local used = hitsById[id] or 0
-            if used < HITS_PER_SECTION then
-                if not withinRange(section, range) then
-                    moveTo(section, range)
-                    RunService.Heartbeat:Wait()
-                end
-                if not isStopped() and section.Parent and fireChop(model, section, tool, damage, cooldown) then
+        for _, section in ipairs(sections) do
+            if isStopped() or hits.count >= FIRE_CAP then
+                break
+            end
+            local idValue = section:FindFirstChild("ID")
+            if section.Parent and idValue then
+                local id = idValue.Value
+                local used = hitsById[id] or 0
+                if used < HITS_PER_SECTION and fireChop(model, section, tool, damage) then
                     hitsById[id] = used + 1
                     hits.count += 1
                     fired += 1
@@ -589,15 +504,18 @@ local function stillTogether(model)
     return model and model.Parent ~= nil and isTreeModel(model)
 end
 
-local function chopModel(model, tool, damage, cooldown, range, hitsById, hits)
+local function chopModel(model, tool, damage, hitsById, hits)
     local stall = 0
     while stillTogether(model) do
         if isStopped() or hits.count >= FIRE_CAP then
             return false
         end
         local before = sectionCount(model)
-        local fired = chopWave(model, tool, damage, cooldown, range, hitsById, hits)
-        if not waitFor(0.2) then
+        local fired = chopWave(model, tool, damage, hitsById, hits)
+        if fired == 0 then
+            return not stillTogether(model)
+        end
+        if not waitFor(0.05) then
             return false
         end
         local after = model.Parent and sectionCount(model) or 0
@@ -605,11 +523,8 @@ local function chopModel(model, tool, damage, cooldown, range, hitsById, hits)
             stall = 0
         else
             stall += 1
-            if stall >= 4 or fired == 0 then
+            if stall >= 20 then
                 return not stillTogether(model)
-            end
-            if not waitFor(cooldown) then
-                return false
             end
         end
     end
@@ -622,7 +537,7 @@ local function chopTree(tree)
         setStatus("Not on your plot")
         return
     end
-    local tool, damage, swing = bestAxe(tree)
+    local tool, damage = bestAxe(tree)
     if not tool then
         setStatus("Need an axe")
         return
@@ -631,16 +546,12 @@ local function chopTree(tree)
         setStatus("Need an axe")
         return
     end
-    local ping = measurePing()
-    local cooldown = math.max(0.05, 0.65 * swing - ping)
-    local range = toolRange(tool)
     local origin = modelPoint(tree) or Vector3.zero
     local className = tostring(tree.TreeClass.Value)
     local label = treeLabel(tree)
     setStatus("Chopping " .. label)
     print("[Chopper] " .. label)
 
-    local restore = beginMove()
     local spawned = {}
     local conn = Workspace.DescendantAdded:Connect(function(inst)
         if inst:IsA("Model") then
@@ -687,7 +598,7 @@ local function chopTree(tree)
             local model = pending[index]
             index += 1
             if stillTogether(model) and (model == tree or onPlayerPlot(model)) then
-                local modelDone = chopModel(model, tool, damage, cooldown, range, hitsById, hits)
+                local modelDone = chopModel(model, tool, damage, hitsById, hits)
                 if isStopped() then
                     finished = false
                     break
@@ -705,7 +616,7 @@ local function chopTree(tree)
         if finished and not isStopped() and hits.count < FIRE_CAP and waitFor(0.3) then
             for _, inst in ipairs(spawned) do
                 if takePiece(inst) then
-                    local modelDone = chopModel(inst, tool, damage, cooldown, range, hitsById, hits)
+                    local modelDone = chopModel(inst, tool, damage, hitsById, hits)
                     if isStopped() or hits.count >= FIRE_CAP then
                         finished = false
                         break
@@ -719,7 +630,6 @@ local function chopTree(tree)
     end, debug.traceback)
 
     conn:Disconnect()
-    restore()
 
     if isStopped() then
         setStatus("Stopped")

@@ -30,6 +30,7 @@ local SCRIPTS = {
 local GUI_NAME = "JellDashboard"
 local CLICK_ACTION = "JellDashboardClickTp"
 local LIGHTING_STEP = "JellDashboardLighting"
+local MOVE_STEP = "JellDashboardShiftWalk"
 
 local RED = Color3.fromRGB(210, 70, 70)
 local GREEN = Color3.fromRGB(70, 190, 105)
@@ -43,6 +44,7 @@ local settings = {
     disableShadows = true,
     disableFog = true,
     alwaysDay = true,
+    disableShiftWalk = true,
 }
 
 local toggleKey = Enum.KeyCode.T
@@ -422,6 +424,52 @@ end
 
 bindCtrl()
 
+local function shiftWalkHeld()
+    if UserInputService:GetFocusedTextBox() then
+        return false
+    end
+    local shift = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)
+        or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
+    if not shift then
+        return false
+    end
+    return UserInputService:IsKeyDown(Enum.KeyCode.W)
+        or UserInputService:IsKeyDown(Enum.KeyCode.A)
+        or UserInputService:IsKeyDown(Enum.KeyCode.S)
+        or UserInputService:IsKeyDown(Enum.KeyCode.D)
+end
+
+local function holdShiftWalk()
+    if not settings.disableShiftWalk or not shiftWalkHeld() then
+        return
+    end
+    local character = Player.Character
+    if not character then
+        return
+    end
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        humanoid:Move(Vector3.zero, false)
+    end
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        local velocity = hrp.AssemblyLinearVelocity
+        hrp.AssemblyLinearVelocity = Vector3.new(0, velocity.Y, 0)
+    end
+end
+
+local function bindShiftWalk()
+    pcall(function()
+        RunService:UnbindFromRenderStep(MOVE_STEP)
+    end)
+    if not settings.disableShiftWalk then
+        return
+    end
+    RunService:BindToRenderStep(MOVE_STEP, Enum.RenderPriority.Last.Value, holdShiftWalk)
+end
+
+bindShiftWalk()
+
 local ctx = {
     screenGui = screenGui,
     window = window,
@@ -692,6 +740,10 @@ local function toggleRow(labelText, key, y)
             bindCtrl()
             return
         end
+        if key == "disableShiftWalk" then
+            bindShiftWalk()
+            return
+        end
         if key == "alwaysDay" and not settings.alwaysDay then
             restoreAlwaysDay()
         elseif key == "disableShadows" and not settings.disableShadows then
@@ -708,6 +760,7 @@ toggleRow("Ctrl Click", "ctrlClick", 0)
 toggleRow("Disable shadows", "disableShadows", 32)
 toggleRow("Disable fog", "disableFog", 64)
 toggleRow("Always Day", "alwaysDay", 96)
+toggleRow("Disable shift walk", "disableShiftWalk", 128)
 
 settingsBtn.MouseButton1Click:Connect(showSettings)
 
@@ -732,6 +785,9 @@ local function shutdown()
         end
     end
     ContextActionService:UnbindAction(CLICK_ACTION)
+    pcall(function()
+        RunService:UnbindFromRenderStep(MOVE_STEP)
+    end)
     restoreLighting()
     screenGui:Destroy()
 end

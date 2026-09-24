@@ -5,7 +5,7 @@ alwaysApply: true
 
 # Settings
 
-Ctrl Click, Disable shadows, Disable fog, and Always Day live in `Dashboard/Dashboard.lua`. They start on. Do not save them.
+Ctrl Click, Disable shadows, Disable fog, Always Day, and Disable shift walk live in `Dashboard/Dashboard.lua`. They start on. Do not save them.
 
 Script-specific settings stay on that script's settings page and in its `saveConfig`.
 
