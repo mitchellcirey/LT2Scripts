@@ -1,13 +1,15 @@
 ---
-description: New settings go on the Settings tab and in the saved config. Keep the UI terse.
+description: Dashboard toggles stay session-only. Script settings stay on that script's page.
 alwaysApply: true
 ---
 
 # Settings
 
-Put every new user setting on `settingsPage` in `Duper.lua`, and persist it in `saveConfig` and `applySavedConfig`.
+Ctrl Click, Disable shadows, Disable fog, and Always Day live in `Dashboard/Dashboard.lua`. They start on. Do not save them.
 
-Keep the UI to a label and a control. No hint text, captions, or explanations of where something saves or how to use it.
+Script-specific settings stay on that script's settings page and in its `saveConfig`.
+
+Keep the UI to a label and a control. No hint text.
 
 ```lua
 -- BAD

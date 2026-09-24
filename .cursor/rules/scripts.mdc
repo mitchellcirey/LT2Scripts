@@ -1,0 +1,25 @@
+---
+description: Put each script in its own folder and register it on the dashboard.
+alwaysApply: true
+---
+
+# Scripts
+
+Each script is its own folder and file, such as `Duper/Duper.lua`. The dashboard list is `SCRIPTS` in `Dashboard/Dashboard.lua`.
+
+Before adding a script, check `SCRIPTS` and the existing folders.
+
+- If the script already exists, edit that folder.
+- If it does not, create `Name/Name.lua` and add it to `SCRIPTS`.
+
+Do not start a script from the loader. The dashboard loads it from GitHub when it is chosen, and starts it only from the power button.
+
+A script module returns `start`, `stop`, `mount`, and `unmount`. `mount` builds into the frame it is given.
+
+```lua
+-- BAD
+-- Add wood-cutting code to Duper/Duper.lua.
+
+-- GOOD
+-- Add Wood/Wood.lua and register Wood in SCRIPTS.
+```

@@ -10,7 +10,6 @@ local Workspace         = Services.Workspace
 local UserInputService  = Services.UserInputService
 local ContextActionService = Services.ContextActionService
 local RunService        = Services.RunService
-local Lighting          = Services.Lighting
 
 local Player            = Players.LocalPlayer
 local ClientIsDragging  = ReplicatedStorage:WaitForChild("Interaction"):WaitForChild("ClientIsDragging")
@@ -18,7 +17,6 @@ local ClientIsDragging  = ReplicatedStorage:WaitForChild("Interaction"):WaitForC
 local HOLD_BEFORE_RELEASE = 0.2
 local PLACE_RETRIES = 3
 local ARRIVE_SLOP = 2.5
-local GUI_NAME = "LT2DuperUI"
 local LOG_GAP = 2
 local PLANK_GAP = 0.85
 local GRAB_RANGE = 22
@@ -29,8 +27,6 @@ local PILE_GAP = 0.45
 local PILE_MAX_HEIGHT = 28
 
 local CLICK_SELECT_ACTION = "LT2DuperClickSelect"
-local CLICK_TP_ACTION = "LT2DuperClickTp"
-local LIGHTING_STEP = "LT2DuperLighting"
 local OUTLINE_COLOR = Color3.fromRGB(0, 255, 255)
 
 local selected = {}
@@ -44,67 +40,13 @@ local outlines = {}
 local outlineConns = {}
 local outlineWatch
 
-local savedLighting
-
-local function applyLockedLighting()
-    Lighting.ClockTime = 12
-    Lighting.Brightness = 2
-    Lighting.Ambient = Color3.fromRGB(255, 255, 255)
-    Lighting.OutdoorAmbient = Color3.fromRGB(255, 255, 255)
-    Lighting.GlobalShadows = false
-    Lighting.FogStart = 0
-    Lighting.FogEnd = 1000000
-    local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
-    if atmosphere then
-        atmosphere.Density = 0
-        atmosphere.Haze = 0
-    end
-end
-
-local function lockLighting()
-    if not savedLighting then
-        local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
-        savedLighting = {
-            ClockTime = Lighting.ClockTime,
-            Brightness = Lighting.Brightness,
-            Ambient = Lighting.Ambient,
-            OutdoorAmbient = Lighting.OutdoorAmbient,
-            GlobalShadows = Lighting.GlobalShadows,
-            FogStart = Lighting.FogStart,
-            FogEnd = Lighting.FogEnd,
-            Atmosphere = atmosphere,
-            Density = atmosphere and atmosphere.Density,
-            Haze = atmosphere and atmosphere.Haze,
-        }
-    end
-    pcall(function()
-        RunService:UnbindFromRenderStep(LIGHTING_STEP)
-    end)
-    applyLockedLighting()
-    RunService:BindToRenderStep(LIGHTING_STEP, Enum.RenderPriority.Last.Value, applyLockedLighting)
-end
-
-local function unlockLighting()
-    pcall(function()
-        RunService:UnbindFromRenderStep(LIGHTING_STEP)
-    end)
-    local saved = savedLighting
-    savedLighting = nil
-    if not saved then
-        return
-    end
-    Lighting.ClockTime = saved.ClockTime
-    Lighting.Brightness = saved.Brightness
-    Lighting.Ambient = saved.Ambient
-    Lighting.OutdoorAmbient = saved.OutdoorAmbient
-    Lighting.GlobalShadows = saved.GlobalShadows
-    Lighting.FogStart = saved.FogStart
-    Lighting.FogEnd = saved.FogEnd
-    if saved.Atmosphere and saved.Atmosphere.Parent then
-        saved.Atmosphere.Density = saved.Density
-        saved.Atmosphere.Haze = saved.Haze
-    end
-end
+local started = false
+local mounted = false
+local dashWindow
+local teardownUi = function() end
+local bindClickSelect = function() end
+local stopActiveRun = function() end
+local guiCleanupHooked = false
 
 local function prettyName(raw)
     return (tostring(raw):gsub("(%l)(%u)", "%1 %2"):gsub("_", " "))
@@ -126,7 +68,7 @@ local rebuildList
 local screenGui
 
 local function isStopped()
-    return abort or not (screenGui and screenGui.Parent)
+    return (not started) or abort or not (screenGui and screenGui.Parent)
 end
 
 local function isLandPart(part)
@@ -1037,6 +979,16 @@ local function dropOutline(model)
 end
 
 local function syncOutlines()
+    if not started then
+        local pending = {}
+        for model in pairs(outlines) do
+            table.insert(pending, model)
+        end
+        for _, model in ipairs(pending) do
+            dropOutline(model)
+        end
+        return
+    end
     if not (outlineFolder and outlineFolder.Parent) then
         return
     end
@@ -1439,58 +1391,37 @@ local function RunPass()
     end
 end
 
-local function buildInterface()
-    local function getUiParent()
-        local ok, hui = pcall(function()
-            return gethui()
-        end)
-        if ok and hui then
-            return hui
-        end
-        local coreOk, coreGui = pcall(function()
-            return Services.CoreGui
-        end)
-        if coreOk and coreGui then
-            return coreGui
-        end
-        return Player:WaitForChild("PlayerGui")
-    end
-
-    local function make(className, props, parent)
+local function buildInterface(parent, ctx)
+    local function make(className, props, parentInst)
         local inst = Instance.new(className)
         for key, value in pairs(props) do
             inst[key] = value
         end
-        inst.Parent = parent
+        inst.Parent = parentInst
         return inst
     end
 
-    local uiParent = getUiParent()
-    local existing = uiParent:FindFirstChild(GUI_NAME)
-    if existing then
-        existing:Destroy()
+    dashWindow = ctx and ctx.window or dashWindow
+    screenGui = ctx and ctx.screenGui or screenGui
+
+    local pending = {}
+    for model in pairs(outlines) do
+        table.insert(pending, model)
     end
-
-    screenGui = make("ScreenGui", {
-        Name = GUI_NAME,
-        ResetOnSpawn = false,
-        ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
-        DisplayOrder = 999,
-    }, uiParent)
-
-    table.clear(outlines)
-    for model, conn in pairs(outlineConns) do
-        outlineConns[model] = nil
-        conn:Disconnect()
+    for _, model in ipairs(pending) do
+        dropOutline(model)
     end
-    outlineFolder = make("Folder", {
-        Name = "Outlines",
-    }, screenGui)
-
+    if outlineFolder then
+        outlineFolder:Destroy()
+        outlineFolder = nil
+    end
     if outlineWatch then
         outlineWatch:Disconnect()
         outlineWatch = nil
     end
+    outlineFolder = make("Folder", {
+        Name = "DuperOutlines",
+    }, screenGui)
     do
         local queued = false
         outlineWatch = Workspace.DescendantAdded:Connect(function(desc)
@@ -1500,34 +1431,27 @@ local function buildInterface()
             queued = true
             task.delay(0.15, function()
                 queued = false
-                syncOutlines()
+                if started then
+                    syncOutlines()
+                end
             end)
         end)
     end
 
-    screenGui.Destroying:Connect(function()
-        if outlineWatch then
-            outlineWatch:Disconnect()
-            outlineWatch = nil
-        end
-        ContextActionService:UnbindAction(CLICK_SELECT_ACTION)
-        ContextActionService:UnbindAction(CLICK_TP_ACTION)
-        unlockLighting()
-        table.clear(outlines)
-        for model, conn in pairs(outlineConns) do
-            outlineConns[model] = nil
-            conn:Disconnect()
-        end
-        outlineFolder = nil
-    end)
-
-    lockLighting()
+    if not guiCleanupHooked and screenGui then
+        guiCleanupHooked = true
+        screenGui.Destroying:Connect(function()
+            started = false
+            abort = true
+            ContextActionService:UnbindAction(CLICK_SELECT_ACTION)
+            teardownUi()
+        end)
+    end
 
     local toggleKey = Enum.KeyCode.T
     local listeningForKey = false
     local CONFIG_DIR = "LT2Scripts"
     local CONFIG_FILE = CONFIG_DIR .. "/settings.json"
-    local window
 
     local function readSavedConfig()
         if type(readfile) ~= "function" then
@@ -1550,7 +1474,7 @@ local function buildInterface()
     end
 
     local function saveConfig()
-        if type(writefile) ~= "function" or not (window and window.Parent) then
+        if type(writefile) ~= "function" then
             return
         end
         if type(makefolder) == "function" and type(isfolder) == "function" and not isfolder(CONFIG_DIR) then
@@ -1563,16 +1487,9 @@ local function buildInterface()
             end
         end
         table.sort(picked)
-        local pos = window.Position
         local payload = {
             toggleKey = toggleKey.Name,
             selected = picked,
-            position = {
-                xScale = pos.X.Scale,
-                xOffset = pos.X.Offset,
-                yScale = pos.Y.Scale,
-                yOffset = pos.Y.Offset,
-            },
             amount = logLimit or "unlimited",
             pile = pileItems,
             clickSelect = clickSelect,
@@ -1586,7 +1503,6 @@ local function buildInterface()
     end
 
     local savedConfig = readSavedConfig()
-    local windowPos = UDim2.new(0, 16, 0.5, -180)
     if savedConfig then
         if type(savedConfig.toggleKey) == "string" then
             local keyOk, key = pcall(function()
@@ -1594,16 +1510,10 @@ local function buildInterface()
             end)
             if keyOk and key and key ~= Enum.KeyCode.Unknown then
                 toggleKey = key
+                if ctx and ctx.setToggleKey then
+                    ctx.setToggleKey(toggleKey)
+                end
             end
-        end
-        local pos = savedConfig.position
-        if type(pos) == "table"
-            and type(pos.xScale) == "number"
-            and type(pos.xOffset) == "number"
-            and type(pos.yScale) == "number"
-            and type(pos.yOffset) == "number"
-        then
-            windowPos = UDim2.new(pos.xScale, pos.xOffset, pos.yScale, pos.yOffset)
         end
         if type(savedConfig.selected) == "table" then
             for _, id in ipairs(savedConfig.selected) do
@@ -1625,49 +1535,22 @@ local function buildInterface()
         end
     end
 
-    window = make("Frame", {
-        Name = "Window",
-        Size = UDim2.fromOffset(280, 420),
-        Position = windowPos,
-        BackgroundColor3 = Color3.fromRGB(18, 18, 18),
-        BackgroundTransparency = 0.22,
-        BorderSizePixel = 0,
-        Active = true,
-    }, screenGui)
-
-    local titleBar = make("Frame", {
-        Size = UDim2.new(1, 0, 0, 28),
+    local root = make("Frame", {
+        Name = "DuperRoot",
+        Size = UDim2.fromScale(1, 1),
         BackgroundTransparency = 1,
-    }, window)
-
-    make("Frame", {
-        Size = UDim2.new(1, -16, 0, 1),
-        Position = UDim2.new(0, 8, 1, -1),
-        BackgroundColor3 = Color3.fromRGB(48, 48, 48),
-        BorderSizePixel = 0,
-    }, titleBar)
-
-    local titleLabel = make("TextLabel", {
-        Size = UDim2.fromOffset(98, 28),
-        Position = UDim2.fromOffset(10, 0),
-        BackgroundTransparency = 1,
-        Font = Enum.Font.SourceSans,
-        Text = "Jell's Duper",
-        TextSize = 16,
-        TextColor3 = Color3.fromRGB(230, 230, 230),
-        TextXAlignment = Enum.TextXAlignment.Left,
-    }, titleBar)
+    }, parent)
 
     local timerLabel = make("TextLabel", {
-        Size = UDim2.fromOffset(48, 28),
-        Position = UDim2.fromOffset(116, 0),
+        Size = UDim2.fromOffset(56, 22),
+        Position = UDim2.new(1, -64, 0, 4),
         BackgroundTransparency = 1,
         Font = Enum.Font.SourceSans,
         Text = "0:00",
         TextSize = 16,
         TextColor3 = Color3.fromRGB(140, 140, 140),
-        TextXAlignment = Enum.TextXAlignment.Left,
-    }, titleBar)
+        TextXAlignment = Enum.TextXAlignment.Right,
+    }, root)
 
     local timerToken = 0
     local timerStart = 0
@@ -1705,17 +1588,6 @@ local function buildInterface()
         end)
     end
 
-    local closeBtn = make("TextButton", {
-        Size = UDim2.fromOffset(28, 28),
-        Position = UDim2.new(1, -28, 0, 0),
-        BackgroundTransparency = 1,
-        Font = Enum.Font.SourceSans,
-        Text = "x",
-        TextSize = 16,
-        TextColor3 = Color3.fromRGB(140, 140, 140),
-        AutoButtonColor = false,
-    }, titleBar)
-
     local plotTab = make("TextButton", {
         Size = UDim2.new(0.5, -1, 0, 22),
         Position = UDim2.fromOffset(0, 32),
@@ -1725,7 +1597,7 @@ local function buildInterface()
         TextSize = 15,
         TextColor3 = Color3.fromRGB(255, 255, 255),
         AutoButtonColor = false,
-    }, window)
+    }, root)
 
     local settingsTab = make("TextButton", {
         Size = UDim2.new(0.5, -1, 0, 22),
@@ -1736,20 +1608,20 @@ local function buildInterface()
         TextSize = 15,
         TextColor3 = Color3.fromRGB(175, 175, 175),
         AutoButtonColor = false,
-    }, window)
+    }, root)
 
     local plotPage = make("Frame", {
         Size = UDim2.new(1, -16, 1, -62),
         Position = UDim2.fromOffset(8, 58),
         BackgroundTransparency = 1,
-    }, window)
+    }, root)
 
     local settingsPage = make("Frame", {
         Size = UDim2.new(1, -16, 1, -62),
         Position = UDim2.fromOffset(8, 58),
         BackgroundTransparency = 1,
         Visible = false,
-    }, window)
+    }, root)
 
     make("TextLabel", {
         Size = UDim2.new(1, 0, 0, 16),
@@ -1926,58 +1798,22 @@ local function buildInterface()
     local hoverConn
 
     local function pointerOverWindow()
-        if not (window and window.Visible and window.Parent) then
+        if not (dashWindow and dashWindow.Visible and dashWindow.Parent) then
             return false
         end
         local mousePos = UserInputService:GetMouseLocation()
-        local gui = window:FindFirstAncestorWhichIsA("ScreenGui")
+        local gui = dashWindow:FindFirstAncestorWhichIsA("ScreenGui")
         local x, y = mousePos.X, mousePos.Y
         if not (gui and gui.IgnoreGuiInset) then
             local inset = Services.GuiService:GetGuiInset()
             x -= inset.X
             y -= inset.Y
         end
-        local pos = window.AbsolutePosition
-        local size = window.AbsoluteSize
+        local pos = dashWindow.AbsolutePosition
+        local size = dashWindow.AbsoluteSize
         return x >= pos.X and x <= pos.X + size.X
             and y >= pos.Y and y <= pos.Y + size.Y
     end
-
-    local function onClickTeleport(_, state)
-        if state ~= Enum.UserInputState.Begin then
-            return Enum.ContextActionResult.Pass
-        end
-        if not (UserInputService:IsKeyDown(Enum.KeyCode.LeftControl)
-            or UserInputService:IsKeyDown(Enum.KeyCode.RightControl))
-        then
-            return Enum.ContextActionResult.Pass
-        end
-        if pointerOverWindow() or UserInputService:GetFocusedTextBox() then
-            return Enum.ContextActionResult.Pass
-        end
-        local mouse = Player:GetMouse()
-        if not (mouse.Target and mouse.Hit) then
-            return Enum.ContextActionResult.Pass
-        end
-        local hrp = playerRoot()
-        if not hrp then
-            return Enum.ContextActionResult.Pass
-        end
-        hrp.AssemblyLinearVelocity = Vector3.zero
-        hrp.AssemblyAngularVelocity = Vector3.zero
-        hrp.CFrame = CFrame.new(mouse.Hit.Position + Vector3.new(0, 3, 0))
-            * CFrame.Angles(0, flatYaw(hrp.CFrame), 0)
-        return Enum.ContextActionResult.Sink
-    end
-
-    ContextActionService:UnbindAction(CLICK_TP_ACTION)
-    ContextActionService:BindActionAtPriority(
-        CLICK_TP_ACTION,
-        onClickTeleport,
-        false,
-        Enum.ContextActionPriority.High.Value + 1,
-        Enum.UserInputType.MouseButton1
-    )
 
     local function updateHoverHint()
         if not (hoverHint and hoverHint.Parent) then
@@ -2025,15 +1861,8 @@ local function buildInterface()
         hoverConn = Services.RunService.RenderStepped:Connect(updateHoverHint)
     end
 
-    screenGui.Destroying:Connect(function()
-        if hoverConn then
-            hoverConn:Disconnect()
-            hoverConn = nil
-        end
-    end)
-
     local function onClickSelect(_, state)
-        if state ~= Enum.UserInputState.Begin or not clickSelect or not (window and window.Visible) then
+        if state ~= Enum.UserInputState.Begin or not started or not clickSelect or not (dashWindow and dashWindow.Visible) then
             return Enum.ContextActionResult.Pass
         end
         if pointerOverWindow() or UserInputService:GetFocusedTextBox() then
@@ -2051,9 +1880,11 @@ local function buildInterface()
     end
 
     local function applyClickSelect()
-        clickBtn.Text = if clickSelect then "On" else "Off"
+        if clickBtn and clickBtn.Parent then
+            clickBtn.Text = if clickSelect then "On" else "Off"
+        end
         ContextActionService:UnbindAction(CLICK_SELECT_ACTION)
-        if not clickSelect then
+        if not (started and clickSelect) then
             return
         end
         ContextActionService:BindActionAtPriority(
@@ -2142,6 +1973,9 @@ local function buildInterface()
     end
 
     rebuildList = function()
+        if not (list and list.Parent) then
+            return
+        end
         local scroll = list.CanvasPosition
         for _, child in ipairs(listInner:GetChildren()) do
             if not child:IsA("UIListLayout") then
@@ -2227,7 +2061,6 @@ local function buildInterface()
         settingsTab.Font = plotOn and Enum.Font.SourceSans or Enum.Font.SourceSansBold
         plotTab.TextColor3 = plotOn and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(175, 175, 175)
         settingsTab.TextColor3 = plotOn and Color3.fromRGB(175, 175, 175) or Color3.fromRGB(255, 255, 255)
-        titleLabel.Text = plotOn and "Jell's Duper" or "Settings"
     end
 
     plotTab.MouseButton1Click:Connect(function()
@@ -2353,16 +2186,9 @@ local function buildInterface()
         syncOutlines()
     end)
 
-    local function stopScript(closeUi)
+    local function stopScript()
         abort = true
         stopRunTimer()
-        if closeUi then
-            saveConfig()
-            if screenGui then
-                screenGui:Destroy()
-            end
-            return
-        end
         setStatus("Stopped")
         if runBtn and runBtn.Parent then
             runBtn.Text = "Run"
@@ -2394,98 +2220,126 @@ local function buildInterface()
     end
 
     runBtn.MouseButton1Click:Connect(function()
-        if busy then
+        if busy or not started then
+            if not started then
+                setStatus("Stopped")
+            end
             return
         end
-        if isStopped() then
-            abort = false
-        end
+        abort = false
         task.spawn(runOnce)
     end)
 
     stopBtn.MouseButton1Click:Connect(function()
-        stopScript(false)
-    end)
-
-    closeBtn.MouseButton1Click:Connect(function()
-        stopScript(true)
+        stopScript()
     end)
 
     local function refreshKeyButton()
+        keyBtn.Text = toggleKey.Name
         if listeningForKey then
-            keyBtn.Text = "Press a key"
             keyBtn.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
             keyBtn.TextColor3 = Color3.fromRGB(18, 18, 18)
         else
-            keyBtn.Text = toggleKey.Name
             keyBtn.BackgroundColor3 = Color3.fromRGB(58, 58, 58)
             keyBtn.TextColor3 = Color3.fromRGB(230, 230, 230)
         end
     end
 
-    keyBtn.MouseButton1Click:Connect(function()
-        listeningForKey = not listeningForKey
+    local function setCapturing(on)
+        listeningForKey = on
+        if ctx and ctx.setCapturing then
+            ctx.setCapturing(on)
+        end
         refreshKeyButton()
-    end)
-
-    UserInputService.InputBegan:Connect(function(input, gameProcessed)
-        if input.UserInputType ~= Enum.UserInputType.Keyboard then
-            return
-        end
-        if listeningForKey then
-            if input.KeyCode == Enum.KeyCode.Escape or input.KeyCode == Enum.KeyCode.Unknown then
-                listeningForKey = false
-                refreshKeyButton()
-                return
-            end
-            toggleKey = input.KeyCode
-            listeningForKey = false
-            refreshKeyButton()
-            saveConfig()
-            return
-        end
-        if gameProcessed or UserInputService:GetFocusedTextBox() then
-            return
-        end
-        if input.KeyCode == toggleKey and window and window.Parent then
-            window.Visible = not window.Visible
-        end
-    end)
-
-    do
-        local dragging = false
-        local dragStart
-        local startPos
-
-        titleBar.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 then
-                dragging = true
-                dragStart = input.Position
-                startPos = window.Position
-            end
-        end)
-
-        titleBar.InputEnded:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 then
-                dragging = false
-                saveConfig()
-            end
-        end)
-
-        UserInputService.InputChanged:Connect(function(input)
-            if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-                local delta = input.Position - dragStart
-                window.Position = UDim2.new(
-                    startPos.X.Scale,
-                    startPos.X.Offset + delta.X,
-                    startPos.Y.Scale,
-                    startPos.Y.Offset + delta.Y
-                )
-            end
-        end)
     end
+
+    keyBtn.MouseButton1Click:Connect(function()
+        setCapturing(not listeningForKey)
+    end)
+
+    UserInputService.InputBegan:Connect(function(input)
+        if input.UserInputType ~= Enum.UserInputType.Keyboard or not listeningForKey then
+            return
+        end
+        if input.KeyCode == Enum.KeyCode.Escape or input.KeyCode == Enum.KeyCode.Unknown then
+            setCapturing(false)
+            return
+        end
+        toggleKey = input.KeyCode
+        setCapturing(false)
+        if ctx and ctx.setToggleKey then
+            ctx.setToggleKey(toggleKey)
+        end
+        saveConfig()
+    end)
+
+    teardownUi = function()
+        if hoverConn then
+            hoverConn:Disconnect()
+            hoverConn = nil
+        end
+        if hoverHint then
+            hoverHint:Destroy()
+            hoverHint = nil
+        end
+        if root and root.Parent then
+            root:Destroy()
+        end
+    end
+    bindClickSelect = applyClickSelect
+    stopActiveRun = stopScript
 
     refreshPlot()
 end
 
-buildInterface()
+local api = {}
+
+function api.start(ctx)
+    if type(ctx) == "table" then
+        if ctx.window then
+            dashWindow = ctx.window
+        end
+        if ctx.screenGui then
+            screenGui = ctx.screenGui
+        end
+    end
+    started = true
+    abort = false
+    bindClickSelect()
+    if mounted then
+        syncOutlines()
+    end
+end
+
+function api.stop()
+    started = false
+    abort = true
+    ContextActionService:UnbindAction(CLICK_SELECT_ACTION)
+    stopActiveRun()
+    local pending = {}
+    for model in pairs(outlines) do
+        table.insert(pending, model)
+    end
+    for _, model in ipairs(pending) do
+        dropOutline(model)
+    end
+end
+
+function api.mount(parent, ctx)
+    if mounted then
+        api.unmount()
+    end
+    buildInterface(parent, ctx)
+    mounted = true
+    if started then
+        bindClickSelect()
+        syncOutlines()
+    end
+end
+
+function api.unmount()
+    teardownUi()
+    mounted = false
+end
+
+return api
