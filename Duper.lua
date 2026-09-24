@@ -805,61 +805,30 @@ local function onPlayerPlot(inst)
 end
 
 local function forEachOwned(callback)
-    updateLandCache()
-    local seen = {}
-    local function ownedRoot(inst)
-        local root = inst
-        local parent = inst.Parent
-        while parent and parent ~= Workspace do
-            if parent.Name == "PlayerModels" or isPlotModel(parent) then
-                break
-            end
-            if ownsModel(parent) then
-                root = parent
-            end
-            parent = parent.Parent
-        end
-        return root
+    local models = Workspace:FindFirstChild("PlayerModels")
+    if not models then
+        log("No PlayerModels")
+        return
     end
-
-    local function consider(inst)
-        if not inst or seen[inst] or inst == Player or inst == Player.Character or inst == Workspace then
-            return
-        end
-        if not ownsModel(inst) or isOwnedLand(inst) or isPlotModel(inst) or not dragTarget(inst) or not onPlayerPlot(inst) then
-            return
-        end
-        seen[inst] = true
-        callback(inst)
-    end
-
-    local function scan(root)
-        if not root then
-            return
-        end
-        for _, desc in ipairs(root:GetDescendants()) do
-            if desc.Name == "Owner" and desc.Parent then
-                consider(ownedRoot(desc.Parent))
-            end
+    for _, model in ipairs(models:GetChildren()) do
+        if ownsModel(model) and dragTarget(model) then
+            callback(model)
         end
     end
-
-    scan(Workspace)
 end
 
 local function ownedItemFromInstance(inst)
-    local found = nil
     local current = inst
     while current and current ~= Workspace do
-        if current.Name == "PlayerModels" or isPlotModel(current) then
-            break
-        end
-        if ownsModel(current) and dragTarget(current) and onPlayerPlot(current) then
-            found = current
+        if current.Parent and current.Parent.Name == "PlayerModels" then
+            if ownsModel(current) and dragTarget(current) then
+                return current
+            end
+            return nil
         end
         current = current.Parent
     end
-    return found
+    return nil
 end
 
 local function kindFor(form, value)
@@ -932,7 +901,7 @@ local function refreshOwnedSnapshot()
             end
         end
     end)
-    log(("Plots %d, squares %d, items %d, types %d"):format(landPlotCount, #cachedLands, onPlot, #allItems))
+    log(("Owned items %d, types %d"):format(onPlot, #allItems))
 
     local buckets = {
         Logs = {},
@@ -1112,22 +1081,39 @@ end
 local function hoverLines(inst)
     local label = labelForHit(inst)
     local ownerName
+    local plank
     local current = inst
     while current and current ~= Workspace do
+        if not plank and isPlank(current) then
+            plank = current
+        end
         if current.Name == "PlayerModels" or isPlotModel(current) then
             break
         end
         local owner = current:FindFirstChild("Owner")
-        if owner and owner:IsA("ValueBase") then
+        if owner and owner:IsA("ValueBase") and not ownerName then
             ownerName = ownerDisplayName(owner)
-            break
         end
         current = current.Parent
     end
-    if label and ownerName then
-        return label .. "\n" .. ownerName
+    local lines = {}
+    if label then
+        table.insert(lines, label)
     end
-    return label or ownerName
+    if ownerName then
+        table.insert(lines, ownerName)
+    end
+    if plank then
+        local part = plank:FindFirstChild("WoodSection") or dragTarget(plank)
+        if part and part:IsA("BasePart") then
+            local length = math.max(part.Size.X, part.Size.Y, part.Size.Z)
+            table.insert(lines, string.format("%d studs", math.floor(length + 0.5)))
+        end
+    end
+    if #lines == 0 then
+        return nil
+    end
+    return table.concat(lines, "\n")
 end
 
 local function selectTypeFromHit(inst)
