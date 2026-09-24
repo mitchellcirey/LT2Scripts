@@ -20,6 +20,11 @@ local SCRIPTS = {
         name = "Duper",
         url = BASE .. "Duper/Duper.lua",
     },
+    {
+        id = "Chopper",
+        name = "Chopper",
+        url = BASE .. "Chopper/Chopper.lua",
+    },
 }
 
 local GUI_NAME = "JellDashboard"
