@@ -1264,10 +1264,13 @@ local function RunPass()
     end
 
     local standModels = {}
+    local nearModels = {}
     local shortModels = {}
     local pileModels = {}
     for _, job in ipairs(pending) do
-        if not pileItems and standsUp(job.model) then
+        if isPlank(job.model) and not standVertical then
+            table.insert(nearModels, job.model)
+        elseif not pileItems and standsUp(job.model) then
             table.insert(standModels, job.model)
         elseif isShortPlank(job.model) then
             table.insert(shortModels, job.model)
@@ -1312,16 +1315,29 @@ local function RunPass()
             shortSlots[i + 1] = Vector3.new(world.X, y, world.Z)
         end
     end
+    local nearSlots = {}
+    if #nearModels > 0 then
+        local probe = originCF:PointToWorldSpace(Vector3.new(0, 0, -4))
+        local gy = groundYAt(probe, groundIgnore)
+        for i = 1, #nearModels do
+            nearSlots[i] = Vector3.new(probe.X, gy + 0.5, probe.Z)
+        end
+    end
 
     local queue = {}
     local standI = 1
+    local nearI = 1
     local shortI = 1
     local pileI = 1
     for _, job in ipairs(pending) do
-        local stand = not pileItems and standsUp(job.model)
-        local short = isShortPlank(job.model)
+        local near = isPlank(job.model) and not standVertical
+        local stand = not near and not pileItems and standsUp(job.model)
+        local short = not near and isShortPlank(job.model)
         local dest
-        if stand then
+        if near then
+            dest = nearSlots[nearI]
+            nearI += 1
+        elseif stand then
             dest = standSlots[standI]
             standI += 1
         elseif short then

@@ -15,8 +15,8 @@ local RemoteProxy = ReplicatedStorage:WaitForChild("Interaction"):WaitForChild("
 
 local CLICK_ACTION = "LT2ChopperClickSelect"
 local FIRE_CAP = 4000
-local HITS_PER_SECTION = 40
-local BURST = 8
+local HITS_PER_SECTION = 30
+local CUT_MARGIN = 1
 local ADOPT_RANGE = 48
 
 local AXE_STATS = {
@@ -444,14 +444,100 @@ local function waitFor(seconds)
     return true
 end
 
-local function fireChop(model, section, tool, damage)
-    local cut = model:FindFirstChild("CutEvent")
-    local id = section:FindFirstChild("ID")
-    if not (cut and id) then
+local function sawmillLength()
+    local info = ReplicatedStorage:FindFirstChild("ClientItemInfo")
+    local models = Workspace:FindFirstChild("PlayerModels")
+    local best = 0
+    if info and models then
+        for _, model in ipairs(models:GetChildren()) do
+            if string.sub(model.Name, 1, 7) == "Sawmill" and ownsModel(model) then
+                local item = info:FindFirstChild(model.Name)
+                local other = item and item:FindFirstChild("OtherInfo")
+                local length = other and other:FindFirstChild("MaxLogLength")
+                if length and length:IsA("NumberValue") and length.Value > best then
+                    best = length.Value
+                end
+            end
+        end
+    end
+    if best <= 0 then
+        return 10
+    end
+    return best
+end
+
+local function cutHeight(section, maxLength, used)
+    local length = section.Size.Y
+    if length <= CUT_MARGIN * 2 then
+        return nil
+    end
+    if length > maxLength then
+        return math.clamp(maxLength - 0.15, CUT_MARGIN, length - CUT_MARGIN)
+    end
+    if childCount(section) > 0 then
+        local inset = CUT_MARGIN
+        if (used or 0) >= 8 then
+            inset = math.max(CUT_MARGIN, math.min(length * 0.2, 3))
+        end
+        return math.clamp(length - inset, CUT_MARGIN, length - CUT_MARGIN)
+    end
+    return nil
+end
+
+local function pieceFits(model, maxLength)
+    local total = 0
+    local count = 0
+    local tooLong = false
+    eachSection(model, function(section)
+        count += 1
+        if section.Size.Y > maxLength + 0.05 then
+            tooLong = true
+        end
+        total += section.Size.Y
+    end)
+    if count == 0 then
+        return true
+    end
+    if tooLong then
         return false
     end
-    local height = section.Size.Y * 0.5
-    if height <= 0 then
+    return total <= maxLength + 0.05
+end
+
+local function isChopTarget(model)
+    if not (model and model:IsA("Model") and model.Parent) then
+        return false
+    end
+    if model.Name == "Plank" or model.Name == "PropertySoldSign" then
+        return false
+    end
+    local treeClass = model:FindFirstChild("TreeClass")
+    if not (treeClass and treeClass:IsA("StringValue")) then
+        return false
+    end
+    if tostring(treeClass.Value) == "Sign" then
+        return false
+    end
+    if not model:FindFirstChild("CutEvent") then
+        return false
+    end
+    return sectionCount(model) >= 1
+end
+
+local function pieceSignature(model)
+    local parts = {}
+    eachSection(model, function(section)
+        local id = section:FindFirstChild("ID")
+        table.insert(parts, string.format("%s:%.2f:%d", id and id.Value or "?", section.Size.Y, childCount(section)))
+    end)
+    table.sort(parts)
+    return table.concat(parts, "|")
+end
+
+local function fireChop(model, section, tool, damage, height)
+    local cut = model:FindFirstChild("CutEvent")
+    local id = section:FindFirstChild("ID")
+    if not (cut and id) or not height or height <= 0 then
         return false
     end
     local ok = pcall(function()
@@ -468,63 +554,57 @@ local function fireChop(model, section, tool, damage)
     return ok
 end
 
-local function chopWave(model, tool, damage, hitsById, hits)
+local function chopWave(model, tool, damage, maxLength, hitsById, hits)
     local sections = {}
     eachSection(model, function(section)
-        table.insert(sections, section)
+        if cutHeight(section, maxLength) then
+            table.insert(sections, section)
+        end
     end)
     table.sort(sections, function(a, b)
-        return childCount(a) < childCount(b)
+        return childCount(a) > childCount(b)
     end)
     local fired = 0
-    for _ = 1, BURST do
+    for _, section in ipairs(sections) do
         if isStopped() or hits.count >= FIRE_CAP then
             break
         end
-        for _, section in ipairs(sections) do
-            if isStopped() or hits.count >= FIRE_CAP then
-                break
-            end
-            local idValue = section:FindFirstChild("ID")
-            if section.Parent and idValue then
-                local id = idValue.Value
-                local used = hitsById[id] or 0
-                if used < HITS_PER_SECTION and fireChop(model, section, tool, damage) then
-                    hitsById[id] = used + 1
-                    hits.count += 1
-                    fired += 1
-                end
+        local idValue = section:FindFirstChild("ID")
+        if section.Parent and idValue then
+            local id = idValue.Value
+            local used = hitsById[id] or 0
+            local height = cutHeight(section, maxLength, used)
+            if used < HITS_PER_SECTION and height and fireChop(model, section, tool, damage, height) then
+                hitsById[id] = used + 1
+                hits.count += 1
+                fired += 1
             end
         end
     end
     return fired
 end
 
-local function stillTogether(model)
-    return model and model.Parent ~= nil and isTreeModel(model)
-end
-
-local function chopModel(model, tool, damage, hitsById, hits)
+local function chopModel(model, tool, damage, maxLength, hitsById, hits)
     local stall = 0
-    while stillTogether(model) do
+    while isChopTarget(model) and not pieceFits(model, maxLength) do
         if isStopped() or hits.count >= FIRE_CAP then
             return false
         end
-        local before = sectionCount(model)
-        local fired = chopWave(model, tool, damage, hitsById, hits)
+        local before = pieceSignature(model)
+        local fired = chopWave(model, tool, damage, maxLength, hitsById, hits)
         if fired == 0 then
-            return not stillTogether(model)
+            return true
         end
         if not waitFor(0.05) then
             return false
         end
-        local after = model.Parent and sectionCount(model) or 0
-        if after < before then
+        local after = model.Parent and pieceSignature(model) or ""
+        if after ~= before then
             stall = 0
         else
             stall += 1
-            if stall >= 20 then
-                return not stillTogether(model)
+            if stall >= 40 then
+                return pieceFits(model, maxLength)
             end
         end
     end
@@ -546,6 +626,7 @@ local function chopTree(tree)
         setStatus("Need an axe")
         return
     end
+    local maxLength = sawmillLength()
     local origin = modelPoint(tree) or Vector3.zero
     local className = tostring(tree.TreeClass.Value)
     local label = treeLabel(tree)
@@ -568,7 +649,7 @@ local function chopTree(tree)
     local finished = true
 
     local function takePiece(inst)
-        if seen[inst] or not stillTogether(inst) or not onPlayerPlot(inst) then
+        if seen[inst] or not isChopTarget(inst) or pieceFits(inst, maxLength) or not onPlayerPlot(inst) then
             return false
         end
         local treeClass = inst:FindFirstChild("TreeClass")
@@ -597,13 +678,13 @@ local function chopTree(tree)
             end
             local model = pending[index]
             index += 1
-            if stillTogether(model) and (model == tree or onPlayerPlot(model)) then
-                local modelDone = chopModel(model, tool, damage, hitsById, hits)
+            if isChopTarget(model) and not pieceFits(model, maxLength) and (model == tree or onPlayerPlot(model)) then
+                local modelDone = chopModel(model, tool, damage, maxLength, hitsById, hits)
                 if isStopped() then
                     finished = false
                     break
                 end
-                if not modelDone and stillTogether(model) then
+                if not modelDone and isChopTarget(model) and not pieceFits(model, maxLength) then
                     finished = false
                 end
             end
@@ -616,12 +697,12 @@ local function chopTree(tree)
         if finished and not isStopped() and hits.count < FIRE_CAP and waitFor(0.3) then
             for _, inst in ipairs(spawned) do
                 if takePiece(inst) then
-                    local modelDone = chopModel(inst, tool, damage, hitsById, hits)
+                    local modelDone = chopModel(inst, tool, damage, maxLength, hitsById, hits)
                     if isStopped() or hits.count >= FIRE_CAP then
                         finished = false
                         break
                     end
-                    if not modelDone and stillTogether(inst) then
+                    if not modelDone and isChopTarget(inst) and not pieceFits(inst, maxLength) then
                         finished = false
                     end
                 end
