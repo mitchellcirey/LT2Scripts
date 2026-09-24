@@ -23,7 +23,7 @@ local LOG_GAP = 2
 local PLANK_GAP = 0.85
 local GRAB_RANGE = 22
 local OWNER_TIMEOUT = 1
-local MOVE_SPEED = 1200
+local MOVE_SPEED = 4000
 local AMOUNT_MAX = 50
 local PILE_GAP = 0.45
 local PILE_MAX_HEIGHT = 28
@@ -435,7 +435,7 @@ local function nudgeRoot(goal)
         restore()
         return false
     end
-    local deadline = tick() + math.max(0.45, (goal - hrp.Position).Magnitude / MOVE_SPEED + 0.35)
+    local deadline = tick() + math.max(0.15, (goal - hrp.Position).Magnitude / MOVE_SPEED + 0.08)
     local arrived = false
     while tick() < deadline do
         if isStopped() then
