@@ -48,7 +48,6 @@ local settings = {
 }
 
 local toggleKey = Enum.KeyCode.Tab
-local capturingKey = false
 local savedLighting
 local shownId
 
@@ -473,17 +472,6 @@ bindShiftWalk()
 local ctx = {
     screenGui = screenGui,
     window = window,
-    getToggleKey = function()
-        return toggleKey
-    end,
-    setToggleKey = function(key)
-        if typeof(key) == "EnumItem" and key.EnumType == Enum.KeyCode and key ~= Enum.KeyCode.Unknown then
-            toggleKey = key
-        end
-    end,
-    setCapturing = function(on)
-        capturingKey = on and true or false
-    end,
 }
 
 local states = {}
@@ -795,7 +783,7 @@ end
 closeBtn.MouseButton1Click:Connect(shutdown)
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if capturingKey or input.UserInputType ~= Enum.UserInputType.Keyboard then
+    if input.UserInputType ~= Enum.UserInputType.Keyboard then
         return
     end
     if gameProcessed or UserInputService:GetFocusedTextBox() then

@@ -1425,8 +1425,6 @@ local function buildInterface(parent, ctx)
         end)
     end
 
-    local toggleKey = Enum.KeyCode.Tab
-    local listeningForKey = false
     local CONFIG_DIR = "LT2Scripts"
     local CONFIG_FILE = CONFIG_DIR .. "/settings.json"
 
@@ -1465,7 +1463,6 @@ local function buildInterface(parent, ctx)
         end
         table.sort(picked)
         local payload = {
-            toggleKey = toggleKey.Name,
             selected = picked,
             amount = logLimit or "unlimited",
             pile = pileItems,
@@ -1482,17 +1479,6 @@ local function buildInterface(parent, ctx)
 
     local savedConfig = readSavedConfig()
     if savedConfig then
-        if type(savedConfig.toggleKey) == "string" then
-            local keyOk, key = pcall(function()
-                return Enum.KeyCode[savedConfig.toggleKey]
-            end)
-            if keyOk and key and key ~= Enum.KeyCode.Unknown then
-                toggleKey = key
-                if ctx and ctx.setToggleKey then
-                    ctx.setToggleKey(toggleKey)
-                end
-            end
-        end
         if type(savedConfig.selected) == "table" then
             for _, id in ipairs(savedConfig.selected) do
                 if type(id) == "string" then
@@ -1604,28 +1590,6 @@ local function buildInterface(parent, ctx)
         Visible = false,
     }, root)
 
-    make("TextLabel", {
-        Size = UDim2.new(1, 0, 0, 16),
-        BackgroundTransparency = 1,
-        Font = Enum.Font.SourceSans,
-        Text = "Toggle UI",
-        TextSize = 14,
-        TextColor3 = Color3.fromRGB(160, 160, 160),
-        TextXAlignment = Enum.TextXAlignment.Left,
-    }, settingsPage)
-
-    local keyBtn = make("TextButton", {
-        Size = UDim2.fromOffset(120, 22),
-        Position = UDim2.fromOffset(0, 22),
-        BackgroundColor3 = Color3.fromRGB(58, 58, 58),
-        BorderSizePixel = 0,
-        Font = Enum.Font.SourceSans,
-        Text = toggleKey.Name,
-        TextSize = 15,
-        TextColor3 = Color3.fromRGB(230, 230, 230),
-        AutoButtonColor = false,
-    }, settingsPage)
-
     local function amountText()
         if logLimit == nil then
             return "Unlimited"
@@ -1635,7 +1599,7 @@ local function buildInterface(parent, ctx)
 
     local amountLabel = make("TextLabel", {
         Size = UDim2.new(1, 0, 0, 16),
-        Position = UDim2.fromOffset(0, 56),
+        Position = UDim2.fromOffset(0, 0),
         BackgroundTransparency = 1,
         Font = Enum.Font.SourceSans,
         Text = "Amount  " .. amountText(),
@@ -1646,7 +1610,7 @@ local function buildInterface(parent, ctx)
 
     local amountSlider = make("TextButton", {
         Size = UDim2.new(1, 0, 0, 14),
-        Position = UDim2.fromOffset(0, 76),
+        Position = UDim2.fromOffset(0, 20),
         BackgroundColor3 = Color3.fromRGB(40, 40, 40),
         BorderSizePixel = 0,
         Text = "",
@@ -1703,7 +1667,7 @@ local function buildInterface(parent, ctx)
 
     make("TextLabel", {
         Size = UDim2.new(1, 0, 0, 16),
-        Position = UDim2.fromOffset(0, 102),
+        Position = UDim2.fromOffset(0, 46),
         BackgroundTransparency = 1,
         Font = Enum.Font.SourceSans,
         Text = "Pile",
@@ -1714,7 +1678,7 @@ local function buildInterface(parent, ctx)
 
     local pileBtn = make("TextButton", {
         Size = UDim2.fromOffset(120, 22),
-        Position = UDim2.fromOffset(0, 122),
+        Position = UDim2.fromOffset(0, 66),
         BackgroundColor3 = Color3.fromRGB(58, 58, 58),
         BorderSizePixel = 0,
         Font = Enum.Font.SourceSans,
@@ -1732,7 +1696,7 @@ local function buildInterface(parent, ctx)
 
     make("TextLabel", {
         Size = UDim2.new(1, 0, 0, 16),
-        Position = UDim2.fromOffset(0, 156),
+        Position = UDim2.fromOffset(0, 100),
         BackgroundTransparency = 1,
         Font = Enum.Font.SourceSans,
         Text = "Vertical",
@@ -1743,7 +1707,7 @@ local function buildInterface(parent, ctx)
 
     local verticalBtn = make("TextButton", {
         Size = UDim2.fromOffset(120, 22),
-        Position = UDim2.fromOffset(0, 176),
+        Position = UDim2.fromOffset(0, 120),
         BackgroundColor3 = Color3.fromRGB(58, 58, 58),
         BorderSizePixel = 0,
         Font = Enum.Font.SourceSans,
@@ -1761,7 +1725,7 @@ local function buildInterface(parent, ctx)
 
     make("TextLabel", {
         Size = UDim2.new(1, 0, 0, 16),
-        Position = UDim2.fromOffset(0, 210),
+        Position = UDim2.fromOffset(0, 154),
         BackgroundTransparency = 1,
         Font = Enum.Font.SourceSans,
         Text = "Click select",
@@ -1772,7 +1736,7 @@ local function buildInterface(parent, ctx)
 
     local clickBtn = make("TextButton", {
         Size = UDim2.fromOffset(120, 22),
-        Position = UDim2.fromOffset(0, 230),
+        Position = UDim2.fromOffset(0, 174),
         BackgroundColor3 = Color3.fromRGB(58, 58, 58),
         BorderSizePixel = 0,
         Font = Enum.Font.SourceSans,
@@ -2242,45 +2206,6 @@ local function buildInterface(parent, ctx)
 
     stopBtn.MouseButton1Click:Connect(function()
         stopScript()
-    end)
-
-    local function refreshKeyButton()
-        keyBtn.Text = toggleKey.Name
-        if listeningForKey then
-            keyBtn.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
-            keyBtn.TextColor3 = Color3.fromRGB(18, 18, 18)
-        else
-            keyBtn.BackgroundColor3 = Color3.fromRGB(58, 58, 58)
-            keyBtn.TextColor3 = Color3.fromRGB(230, 230, 230)
-        end
-    end
-
-    local function setCapturing(on)
-        listeningForKey = on
-        if ctx and ctx.setCapturing then
-            ctx.setCapturing(on)
-        end
-        refreshKeyButton()
-    end
-
-    keyBtn.MouseButton1Click:Connect(function()
-        setCapturing(not listeningForKey)
-    end)
-
-    UserInputService.InputBegan:Connect(function(input)
-        if input.UserInputType ~= Enum.UserInputType.Keyboard or not listeningForKey then
-            return
-        end
-        if input.KeyCode == Enum.KeyCode.Escape or input.KeyCode == Enum.KeyCode.Unknown then
-            setCapturing(false)
-            return
-        end
-        toggleKey = input.KeyCode
-        setCapturing(false)
-        if ctx and ctx.setToggleKey then
-            ctx.setToggleKey(toggleKey)
-        end
-        saveConfig()
     end)
 
     teardownUi = function()
