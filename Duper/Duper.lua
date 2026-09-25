@@ -1425,7 +1425,7 @@ local function buildInterface(parent, ctx)
         end)
     end
 
-    local toggleKey = Enum.KeyCode.T
+    local toggleKey = Enum.KeyCode.F
     local listeningForKey = false
     local CONFIG_DIR = "LT2Scripts"
     local CONFIG_FILE = CONFIG_DIR .. "/settings.json"
