@@ -29,6 +29,7 @@ local SCRIPTS = {
 
 local GUI_NAME = "JellDashboard"
 local CLICK_ACTION = "JellDashboardClickTp"
+local TOGGLE_ACTION = "JellDashboardToggle"
 local LIGHTING_STEP = "JellDashboardLighting"
 local MOVE_STEP = "JellDashboardShiftWalk"
 
@@ -48,6 +49,7 @@ local settings = {
 }
 
 local toggleKey = Enum.KeyCode.Tab
+local capturingKey = false
 local savedLighting
 local shownId
 
@@ -750,6 +752,84 @@ toggleRow("Disable fog", "disableFog", 64)
 toggleRow("Always Day", "alwaysDay", 96)
 toggleRow("Disable shift walk", "disableShiftWalk", 128)
 
+make("TextLabel", {
+    Size = UDim2.new(1, -96, 0, 22),
+    Position = UDim2.fromOffset(0, 160),
+    BackgroundTransparency = 1,
+    Font = Enum.Font.SourceSans,
+    Text = "Toggle key",
+    TextSize = 15,
+    TextColor3 = Color3.fromRGB(210, 210, 210),
+    TextXAlignment = Enum.TextXAlignment.Left,
+}, settingsPage)
+
+local keyBtn = make("TextButton", {
+    Size = UDim2.fromOffset(88, 22),
+    Position = UDim2.new(1, -88, 0, 160),
+    BackgroundColor3 = Color3.fromRGB(58, 58, 58),
+    BorderSizePixel = 0,
+    Font = Enum.Font.SourceSans,
+    Text = toggleKey.Name,
+    TextSize = 15,
+    TextColor3 = TEXT,
+    AutoButtonColor = false,
+}, settingsPage)
+
+local function paintKeyButton()
+    keyBtn.Text = toggleKey.Name
+    if capturingKey then
+        keyBtn.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+        keyBtn.TextColor3 = Color3.fromRGB(18, 18, 18)
+    else
+        keyBtn.BackgroundColor3 = Color3.fromRGB(58, 58, 58)
+        keyBtn.TextColor3 = TEXT
+    end
+end
+
+local lastFlip = 0
+
+local function flipWindow()
+    if capturingKey or UserInputService:GetFocusedTextBox() then
+        return
+    end
+    local now = os.clock()
+    if now - lastFlip < 0.05 then
+        return
+    end
+    lastFlip = now
+    if window.Parent then
+        window.Visible = not window.Visible
+    end
+end
+
+local function bindToggleKey()
+    ContextActionService:UnbindAction(TOGGLE_ACTION)
+    if capturingKey then
+        return
+    end
+    ContextActionService:BindActionAtPriority(
+        TOGGLE_ACTION,
+        function(_, state)
+            if state ~= Enum.UserInputState.Begin then
+                return Enum.ContextActionResult.Pass
+            end
+            flipWindow()
+            return Enum.ContextActionResult.Sink
+        end,
+        false,
+        Enum.ContextActionPriority.High.Value + 1,
+        toggleKey
+    )
+end
+
+bindToggleKey()
+
+keyBtn.MouseButton1Click:Connect(function()
+    capturingKey = not capturingKey
+    bindToggleKey()
+    paintKeyButton()
+end)
+
 settingsBtn.MouseButton1Click:Connect(showSettings)
 
 scriptsBtn.MouseButton1Click:Connect(function()
@@ -773,6 +853,7 @@ local function shutdown()
         end
     end
     ContextActionService:UnbindAction(CLICK_ACTION)
+    ContextActionService:UnbindAction(TOGGLE_ACTION)
     pcall(function()
         RunService:UnbindFromRenderStep(MOVE_STEP)
     end)
@@ -782,15 +863,23 @@ end
 
 closeBtn.MouseButton1Click:Connect(shutdown)
 
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
+UserInputService.InputBegan:Connect(function(input)
     if input.UserInputType ~= Enum.UserInputType.Keyboard then
         return
     end
-    if gameProcessed or UserInputService:GetFocusedTextBox() then
+    if capturingKey then
+        if input.KeyCode == Enum.KeyCode.Escape or input.KeyCode == Enum.KeyCode.Unknown then
+            capturingKey = false
+        else
+            toggleKey = input.KeyCode
+            capturingKey = false
+        end
+        bindToggleKey()
+        paintKeyButton()
         return
     end
-    if input.KeyCode == toggleKey and window.Parent then
-        window.Visible = not window.Visible
+    if input.KeyCode == toggleKey then
+        flipWindow()
     end
 end)
 
