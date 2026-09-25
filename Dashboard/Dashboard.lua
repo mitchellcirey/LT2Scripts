@@ -47,7 +47,7 @@ local settings = {
     disableShiftWalk = true,
 }
 
-local toggleKey = Enum.KeyCode.F
+local toggleKey = Enum.KeyCode.Tab
 local capturingKey = false
 local savedLighting
 local shownId
