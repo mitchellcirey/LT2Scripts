@@ -22,6 +22,11 @@ local DARK = Color3.fromRGB(18, 18, 18)
 local BUTTON = Color3.fromRGB(230, 230, 230)
 local FIELD = Color3.fromRGB(58, 58, 58)
 local TRACK = Color3.fromRGB(40, 40, 40)
+local GREEN = Color3.fromRGB(70, 190, 105)
+local TOGGLE_W = 28
+local TOGGLE_H = 14
+local TOGGLE_KNOB = 10
+local TOGGLE_PAD = 2
 
 local QUANTITY_MIN = 1
 local QUANTITY_MAX = 25
@@ -1766,12 +1771,28 @@ function F.enableCutter()
             lastSection = nil
         end
     end))
-    F.track(cutterConns, UserInputService.InputBegan:Connect(function(input, processed)
-        if processed or gen ~= cutterGen or not cutterOn then
+    F.track(cutterConns, Player:GetMouse().Button1Down:Connect(function()
+        if gen ~= cutterGen or not cutterOn then
             return
         end
-        if input.UserInputType ~= Enum.UserInputType.MouseButton1 then
-            return
+        local window = root
+        while window and window.Name ~= "Window" do
+            window = window.Parent
+        end
+        if window then
+            local mousePos = UserInputService:GetMouseLocation()
+            local gui = window:FindFirstAncestorWhichIsA("ScreenGui")
+            local x, y = mousePos.X, mousePos.Y
+            if not (gui and gui.IgnoreGuiInset) then
+                local inset = Services.GuiService:GetGuiInset()
+                x -= inset.X
+                y -= inset.Y
+            end
+            local pos = window.AbsolutePosition
+            local size = window.AbsoluteSize
+            if x >= pos.X and x <= pos.X + size.X and y >= pos.Y and y <= pos.Y + size.Y then
+                return
+            end
         end
         local plank = F.ownedPlank(Player:GetMouse().Target)
         if not plank then
@@ -1989,10 +2010,16 @@ function F.paintAction(button, active, idleText, activeText)
     end
 end
 
+local toggleKnobs = {}
+
 function F.paintToggle(button, on)
-    if button and button.Parent then
-        button.Text = on and "On" or "Off"
+    local knob = button and toggleKnobs[button]
+    if not (button and button.Parent and knob) then
+        return
     end
+    local knobX = on and (TOGGLE_W - TOGGLE_KNOB - TOGGLE_PAD) or TOGGLE_PAD
+    knob.Position = UDim2.fromOffset(knobX, (TOGGLE_H - TOGGLE_KNOB) / 2)
+    button.BackgroundColor3 = on and GREEN or FIELD
 end
 
 function F.paintAll()
@@ -2249,17 +2276,32 @@ function F.actionButton(parent, text, y)
 end
 
 function F.toggleButton(parent)
-    return F.make("TextButton", {
-        Size = UDim2.fromOffset(56, 22),
-        Position = UDim2.new(1, -56, 0, 0),
+    local track = F.make("TextButton", {
+        Size = UDim2.fromOffset(TOGGLE_W, TOGGLE_H),
+        Position = UDim2.new(1, -TOGGLE_W, 0, 4),
         BackgroundColor3 = FIELD,
-        BorderSizePixel = 0,
-        Font = Enum.Font.SourceSans,
-        Text = "Off",
-        TextSize = 15,
-        TextColor3 = TEXT,
+        Text = "",
         AutoButtonColor = false,
     }, parent)
+    F.make("UICorner", {
+        CornerRadius = UDim.new(1, 0),
+    }, track)
+    F.make("UIStroke", {
+        Color = Color3.fromRGB(70, 70, 70),
+        Thickness = 1,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+    }, track)
+    local knob = F.make("Frame", {
+        Size = UDim2.fromOffset(TOGGLE_KNOB, TOGGLE_KNOB),
+        Position = UDim2.fromOffset(TOGGLE_PAD, (TOGGLE_H - TOGGLE_KNOB) / 2),
+        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+        BorderSizePixel = 0,
+    }, track)
+    F.make("UICorner", {
+        CornerRadius = UDim.new(1, 0),
+    }, knob)
+    toggleKnobs[track] = knob
+    return track
 end
 
 function F.block(parent, height, order)
@@ -2377,7 +2419,7 @@ function F.build(parent)
 
     local function labeledToggle(caption, order)
         local row = F.block(list, 22, order)
-        F.fieldLabel(row, caption, 3).Size = UDim2.new(1, -64, 0, 16)
+        F.fieldLabel(row, caption, 3).Size = UDim2.new(1, -36, 0, 16)
         return F.toggleButton(row)
     end
 

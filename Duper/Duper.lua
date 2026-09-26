@@ -1665,8 +1665,50 @@ local function buildInterface(parent, ctx)
         end)
     end)
 
+    local SWITCH_W = 28
+    local SWITCH_H = 14
+    local SWITCH_KNOB = 10
+    local SWITCH_PAD = 2
+    local SWITCH_OFF = Color3.fromRGB(58, 58, 58)
+    local SWITCH_ON = Color3.fromRGB(70, 190, 105)
+
+    local function makeSwitch(y, on)
+        local track = make("TextButton", {
+            Size = UDim2.fromOffset(SWITCH_W, SWITCH_H),
+            Position = UDim2.new(1, -SWITCH_W, 0, y + 1),
+            BackgroundColor3 = if on then SWITCH_ON else SWITCH_OFF,
+            Text = "",
+            AutoButtonColor = false,
+        }, settingsPage)
+        make("UICorner", {
+            CornerRadius = UDim.new(1, 0),
+        }, track)
+        make("UIStroke", {
+            Color = Color3.fromRGB(70, 70, 70),
+            Thickness = 1,
+            ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+        }, track)
+        local knobX = if on then SWITCH_W - SWITCH_KNOB - SWITCH_PAD else SWITCH_PAD
+        local knob = make("Frame", {
+            Size = UDim2.fromOffset(SWITCH_KNOB, SWITCH_KNOB),
+            Position = UDim2.fromOffset(knobX, (SWITCH_H - SWITCH_KNOB) / 2),
+            BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+            BorderSizePixel = 0,
+        }, track)
+        make("UICorner", {
+            CornerRadius = UDim.new(1, 0),
+        }, knob)
+        return track, knob
+    end
+
+    local function paintSwitch(track, knob, on)
+        local knobX = if on then SWITCH_W - SWITCH_KNOB - SWITCH_PAD else SWITCH_PAD
+        knob.Position = UDim2.fromOffset(knobX, (SWITCH_H - SWITCH_KNOB) / 2)
+        track.BackgroundColor3 = if on then SWITCH_ON else SWITCH_OFF
+    end
+
     make("TextLabel", {
-        Size = UDim2.new(1, 0, 0, 16),
+        Size = UDim2.new(1, -36, 0, 16),
         Position = UDim2.fromOffset(0, 46),
         BackgroundTransparency = 1,
         Font = Enum.Font.SourceSans,
@@ -1676,27 +1718,17 @@ local function buildInterface(parent, ctx)
         TextXAlignment = Enum.TextXAlignment.Left,
     }, settingsPage)
 
-    local pileBtn = make("TextButton", {
-        Size = UDim2.fromOffset(120, 22),
-        Position = UDim2.fromOffset(0, 66),
-        BackgroundColor3 = Color3.fromRGB(58, 58, 58),
-        BorderSizePixel = 0,
-        Font = Enum.Font.SourceSans,
-        Text = if pileItems then "On" else "Off",
-        TextSize = 15,
-        TextColor3 = Color3.fromRGB(230, 230, 230),
-        AutoButtonColor = false,
-    }, settingsPage)
+    local pileBtn, pileKnob = makeSwitch(46, pileItems)
 
     pileBtn.MouseButton1Click:Connect(function()
         pileItems = not pileItems
-        pileBtn.Text = if pileItems then "On" else "Off"
+        paintSwitch(pileBtn, pileKnob, pileItems)
         saveConfig()
     end)
 
     make("TextLabel", {
-        Size = UDim2.new(1, 0, 0, 16),
-        Position = UDim2.fromOffset(0, 100),
+        Size = UDim2.new(1, -36, 0, 16),
+        Position = UDim2.fromOffset(0, 70),
         BackgroundTransparency = 1,
         Font = Enum.Font.SourceSans,
         Text = "Vertical",
@@ -1705,27 +1737,17 @@ local function buildInterface(parent, ctx)
         TextXAlignment = Enum.TextXAlignment.Left,
     }, settingsPage)
 
-    local verticalBtn = make("TextButton", {
-        Size = UDim2.fromOffset(120, 22),
-        Position = UDim2.fromOffset(0, 120),
-        BackgroundColor3 = Color3.fromRGB(58, 58, 58),
-        BorderSizePixel = 0,
-        Font = Enum.Font.SourceSans,
-        Text = if standVertical then "On" else "Off",
-        TextSize = 15,
-        TextColor3 = Color3.fromRGB(230, 230, 230),
-        AutoButtonColor = false,
-    }, settingsPage)
+    local verticalBtn, verticalKnob = makeSwitch(70, standVertical)
 
     verticalBtn.MouseButton1Click:Connect(function()
         standVertical = not standVertical
-        verticalBtn.Text = if standVertical then "On" else "Off"
+        paintSwitch(verticalBtn, verticalKnob, standVertical)
         saveConfig()
     end)
 
     make("TextLabel", {
-        Size = UDim2.new(1, 0, 0, 16),
-        Position = UDim2.fromOffset(0, 154),
+        Size = UDim2.new(1, -36, 0, 16),
+        Position = UDim2.fromOffset(0, 94),
         BackgroundTransparency = 1,
         Font = Enum.Font.SourceSans,
         Text = "Click select",
@@ -1734,17 +1756,7 @@ local function buildInterface(parent, ctx)
         TextXAlignment = Enum.TextXAlignment.Left,
     }, settingsPage)
 
-    local clickBtn = make("TextButton", {
-        Size = UDim2.fromOffset(120, 22),
-        Position = UDim2.fromOffset(0, 174),
-        BackgroundColor3 = Color3.fromRGB(58, 58, 58),
-        BorderSizePixel = 0,
-        Font = Enum.Font.SourceSans,
-        Text = if clickSelect then "On" else "Off",
-        TextSize = 15,
-        TextColor3 = Color3.fromRGB(230, 230, 230),
-        AutoButtonColor = false,
-    }, settingsPage)
+    local clickBtn, clickKnob = makeSwitch(94, clickSelect)
 
     local hoverHint = make("TextLabel", {
         Name = "HoverHint",
@@ -1855,7 +1867,7 @@ local function buildInterface(parent, ctx)
 
     local function applyClickSelect()
         if clickBtn and clickBtn.Parent then
-            clickBtn.Text = if clickSelect then "On" else "Off"
+            paintSwitch(clickBtn, clickKnob, clickSelect)
         end
         ContextActionService:UnbindAction(CLICK_SELECT_ACTION)
         if not (started and clickSelect) then

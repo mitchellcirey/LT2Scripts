@@ -726,6 +726,16 @@ local function toggleSwitch(parent)
     return track, knob
 end
 
+local function paintSwitch(track, knob, on)
+    local knobX = on and (TOGGLE_W - TOGGLE_KNOB - TOGGLE_PAD) or TOGGLE_PAD
+    Services.TweenService:Create(knob, TOGGLE_TWEEN, {
+        Position = UDim2.fromOffset(knobX, (TOGGLE_H - TOGGLE_KNOB) / 2),
+    }):Play()
+    Services.TweenService:Create(track, TOGGLE_TWEEN, {
+        BackgroundColor3 = on and GREEN or TOGGLE_OFF,
+    }):Play()
+end
+
 for index, entry in ipairs(SCRIPTS) do
     local row = make("Frame", {
         Size = UDim2.new(1, 0, 0, 24),
@@ -784,21 +794,20 @@ local function toggleRow(labelText, key, y)
         TextXAlignment = Enum.TextXAlignment.Left,
     }, settingsPage)
 
-    local btn = make("TextButton", {
-        Size = UDim2.fromOffset(56, 22),
-        Position = UDim2.new(1, -56, 0, y),
-        BackgroundColor3 = Color3.fromRGB(58, 58, 58),
-        BorderSizePixel = 0,
-        Font = Enum.Font.SourceSans,
-        Text = "On",
-        TextSize = 15,
-        TextColor3 = TEXT,
-        AutoButtonColor = false,
+    local row = make("Frame", {
+        Size = UDim2.new(1, 0, 0, 22),
+        Position = UDim2.fromOffset(0, y),
+        BackgroundTransparency = 1,
     }, settingsPage)
+    local track, knob = toggleSwitch(row)
+    local on = settings[key] == true
+    local knobX = on and (TOGGLE_W - TOGGLE_KNOB - TOGGLE_PAD) or TOGGLE_PAD
+    knob.Position = UDim2.fromOffset(knobX, (TOGGLE_H - TOGGLE_KNOB) / 2)
+    track.BackgroundColor3 = on and GREEN or TOGGLE_OFF
 
-    btn.MouseButton1Click:Connect(function()
+    track.MouseButton1Click:Connect(function()
         settings[key] = not settings[key]
-        btn.Text = settings[key] and "On" or "Off"
+        paintSwitch(track, knob, settings[key])
         if key == "ctrlClick" then
             bindCtrl()
             return
