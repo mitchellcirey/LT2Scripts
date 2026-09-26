@@ -474,12 +474,16 @@ local function readSawmill(model, owner)
 
     local pos1
     local pos2
-    for _, part in ipairs(conveyorModel:GetChildren()) do
-        if part:IsA("BasePart") then
+    for _, part in pairs(conveyorModel:GetChildren()) do
+        local ok, position = pcall(function()
+            return part.Position
+        end)
+        if ok and typeof(position) == "Vector3" then
             if not pos1 then
-                pos1 = part.Position
+                pos1 = position
+            elseif not pos2 then
+                pos2 = position
             else
-                pos2 = part.Position
                 break
             end
         end
@@ -672,18 +676,54 @@ local function refreshHighlight()
     end
 end
 
-local function pause(seconds, alive)
+local function flatDistance(a, b)
+    return ((a - b) * Vector3.new(1, 0, 1)).Magnitude
+end
+
+local function dragRemote()
+    local interaction = ReplicatedStorage:FindFirstChild("Interaction")
+    return interaction and interaction:FindFirstChild("ClientIsDragging")
+end
+
+local settled = {}
+
+local function holdLog(log, woodSection, placeCF, seconds, alive)
+    local remote = dragRemote()
+    if not remote then
+        return false
+    end
     local left = math.max(seconds, 0)
-    while left > 0 and alive() do
-        local slice = math.min(left, 0.1)
+    while left > 0 and alive() and log.Parent and woodSection.Parent do
+        woodSection.AssemblyLinearVelocity = Vector3.zero
+        woodSection.AssemblyAngularVelocity = Vector3.zero
+        woodSection.CFrame = placeCF
+        remote:FireServer(log)
+        local slice = math.min(left, 0.05)
         task.wait(slice)
         left -= slice
     end
+    return alive() and log.Parent and woodSection.Parent
 end
 
 local function moveLogs(player, sawmills, alive)
     local logs = Workspace:FindFirstChild("LogModels")
-    if not logs then
+    local remote = dragRemote()
+    if not logs or not remote then
+        return
+    end
+
+    local rootPart = currentRoot()
+    if not rootPart then
+        return
+    end
+
+    local reachable = {}
+    for _, sawmill in ipairs(sawmills) do
+        if flatDistance(rootPart.Position, sawmill.tpPosition) <= radius then
+            table.insert(reachable, sawmill)
+        end
+    end
+    if #reachable == 0 then
         return
     end
 
@@ -707,14 +747,21 @@ local function moveLogs(player, sawmills, alive)
             return
         end
 
-        local rootPart = currentRoot()
+        rootPart = currentRoot()
         if not rootPart or not alive() then
             return
         end
-        local flat = (rootPart.Position - target.Position) * Vector3.new(1, 0, 1)
-        if flat.Magnitude > radius then
+        if flatDistance(rootPart.Position, target.Position) > radius then
+            settled[log] = nil
             return
         end
+        for _, sawmill in ipairs(reachable) do
+            if flatDistance(woodSection.Position, sawmill.tpPosition) <= 4 then
+                settled[log] = sawmill.tpPosition
+                return
+            end
+        end
+        settled[log] = nil
 
         if woodSection.Size.X * woodSection.Size.Z < 0.24 then
             log:MoveTo(SELL_POSITION)
@@ -727,11 +774,13 @@ local function moveLogs(player, sawmills, alive)
         local chosen
         local highestSize = 0
         local woodVolume = woodSection.Size.X * woodSection.Size.Z * woodSection.Size.Y
-        for _, sawmill in ipairs(sawmills) do
+        for _, sawmill in ipairs(reachable) do
             local sawmillSize = sawmill.x * sawmill.y * 0.25
             if woodVolume >= sawmillSize and sawmillSize > highestSize then
-                highestSize = sawmillSize
-                chosen = sawmill
+                if flatDistance(rootPart.Position, sawmill.tpPosition) <= radius then
+                    highestSize = sawmillSize
+                    chosen = sawmill
+                end
             end
         end
         if not chosen then
@@ -744,9 +793,15 @@ local function moveLogs(player, sawmills, alive)
         if not alive() then
             return
         end
-        woodSection.CFrame = CFrame.new(chosen.tpPosition) * chosen.rot
-        ReplicatedStorage.Interaction.ClientIsDragging:FireServer(log)
-        pause(target.Size.Y / 2, alive)
+
+        local placeCF = CFrame.new(chosen.tpPosition) * chosen.rot
+        woodSection.CFrame = placeCF
+        remote:FireServer(log)
+        if holdLog(log, woodSection, placeCF, target.Size.Y / 2, alive)
+            and flatDistance(woodSection.Position, chosen.tpPosition) <= 4
+        then
+            settled[log] = chosen.tpPosition
+        end
     end
 
     for _, log in ipairs(logs:GetChildren()) do
@@ -881,6 +936,7 @@ local function endRun()
     local wasRunning = running
     running = false
     runToken += 1
+    table.clear(settled)
     releaseDrag()
     pcall(restorePermission)
     if wasRunning then
