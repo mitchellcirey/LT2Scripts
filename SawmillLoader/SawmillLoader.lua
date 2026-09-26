@@ -507,6 +507,21 @@ local function findMill(list)
     return nil, nil
 end
 
+local function getPlayerSawmills(owner)
+    local sawmills = {}
+    local models = Workspace:FindFirstChild("PlayerModels")
+    if not models then
+        return sawmills
+    end
+    for _, model in ipairs(models:GetChildren()) do
+        local ok, entry = pcall(readSawmill, model, owner)
+        if ok and entry then
+            table.insert(sawmills, entry)
+        end
+    end
+    return sawmills
+end
+
 local function clearHighlight()
     if millHighlight then
         millHighlight:Destroy()
@@ -547,21 +562,6 @@ local function refreshHighlight()
     else
         clearHighlight()
     end
-end
-
-local function getPlayerSawmills(owner)
-    local sawmills = {}
-    local models = Workspace:FindFirstChild("PlayerModels")
-    if not models then
-        return sawmills
-    end
-    for _, model in ipairs(models:GetChildren()) do
-        local ok, entry = pcall(readSawmill, model, owner)
-        if ok and entry then
-            table.insert(sawmills, entry)
-        end
-    end
-    return sawmills
 end
 
 local function pause(seconds, alive)
@@ -1132,7 +1132,7 @@ function api.mount(parent)
     end
     build(parent)
     mounted = true
-    refreshHighlight()
+    pcall(refreshHighlight)
     refreshAuraBinding()
 end
 

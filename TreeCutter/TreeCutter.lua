@@ -1,0 +1,2660 @@
+local Services = setmetatable({}, {
+    __index = function(_, index)
+        return game:GetService(index)
+    end,
+})
+
+local Players = Services.Players
+local RunService = Services.RunService
+local UserInputService = Services.UserInputService
+local Workspace = Services.Workspace
+local ReplicatedStorage = Services.ReplicatedStorage
+
+local Player = Players.LocalPlayer
+
+local CONFIG_DIR = "LT2Scripts"
+local CONFIG_FILE = CONFIG_DIR .. "/treecutter.json"
+
+local TEXT = Color3.fromRGB(230, 230, 230)
+local MUTED = Color3.fromRGB(160, 160, 160)
+local RED = Color3.fromRGB(210, 70, 70)
+local DARK = Color3.fromRGB(18, 18, 18)
+local BUTTON = Color3.fromRGB(230, 230, 230)
+local FIELD = Color3.fromRGB(58, 58, 58)
+local TRACK = Color3.fromRGB(40, 40, 40)
+
+local QUANTITY_MIN = 1
+local QUANTITY_MAX = 25
+
+local FIRES_PER_SECTION = 100
+local FIRE_DELAY = 0.01
+local SWEEP_DELAY = 0.1
+local SYNC_DELAY = 0.1
+local RESPAWN_DELAY = 1
+local LOG_DROP = 6
+local SELL_POSITION = Vector3.new(315, 0, 88)
+local PLANK_SELL_CF = CFrame.new(315, 0, 88) * CFrame.Angles(math.rad(90), 0, 0)
+local PLANK_LOCK_TIME = 1
+
+local CUT_FIRE_DELAY = 0.03
+local CUT_TIMEOUT = 90
+local CUT_MAX_UNITS = 100
+local CUT_DETECT = 8
+local CUT_MIN_LEFTOVER = 1
+local CUT_COLOR = Color3.fromRGB(230, 230, 230)
+local QUEUE_COLOR = Color3.fromRGB(210, 160, 70)
+
+local PRIORITY = {
+    "Generic", "Cherry", "Birch", "Oak", "Walnut", "Koa", "Pine", "Palm", "Fir",
+    "Volcano", "Frost", "GreenSwampy", "GoldSwampy",
+    "SnowGlow", "CaveCrawler", "LoneCave", "Spook", "Sinister",
+}
+
+local TREE_RATES = {
+    Generic = 1.5, Cherry = 1.3, Birch = 2.25,
+    Oak = 0.75, Walnut = 1.2, Koa = 2.8,
+    Pine = 3.2, Palm = 2.9, Fir = 3.2,
+    Volcano = 3.5, Frost = 9, GreenSwampy = 4.4,
+    GoldSwampy = 5.7, SnowGlow = 1.5, CaveCrawler = 8,
+    LoneCave = 150, BlueSpruce = 20, Spook = 19,
+    SpookNeon = 25,
+}
+
+local PLANK_RATES = {
+    Generic = 10, Cherry = 10.5, Birch = 15,
+    Oak = 6, Walnut = 11, Koa = 26.4,
+    Pine = 18, Palm = 32, Fir = 18,
+    Volcano = 28, Frost = 106, GreenSwampy = 30,
+    GoldSwampy = 36, SnowGlow = 10, CaveCrawler = 36,
+    LoneCave = 420, BlueSpruce = 40, Spook = 54,
+    SpookNeon = 90,
+}
+
+local AXE_DAMAGE = {
+    ["Inverse Axe"] = function()
+        return -1
+    end,
+    ["Refined Axe"] = function(treeClass)
+        if treeClass == "Plank" then
+            return 12
+        end
+        return 0
+    end,
+    ["Candy Cane Axe"] = function()
+        return 0
+    end,
+    ["Basic Hatchet"] = function()
+        return 0.2
+    end,
+    ["Plain Axe"] = function()
+        return 0.55
+    end,
+    ["Rusty Axe"] = function()
+        return 0.55
+    end,
+    ["Spearmint Axe"] = function()
+        return 0.8
+    end,
+    ["CHICKEN AXE"] = function()
+        return 0.9
+    end,
+    ["Steel Axe"] = function()
+        return 0.93
+    end,
+    ["Hardened Axe"] = function()
+        return 1.45
+    end,
+    ["Beta Axe of Bosses"] = function()
+        return 1.45
+    end,
+    ["Beesaxe"] = function()
+        return 1.4
+    end,
+    ["Alpha Axe of Testing"] = function()
+        return 1.5
+    end,
+    ["Pig Axe"] = function()
+        return 1.5
+    end,
+    ["Silver Axe"] = function()
+        return 1.6
+    end,
+    ["Rukiryaxe"] = function()
+        return 1.68
+    end,
+    ["Candy Corn Axe"] = function()
+        return 1.75
+    end,
+    ["Amber Axe"] = function()
+        return 3.39
+    end,
+    ["The Many Axe"] = function()
+        return 10.2
+    end,
+    ["Pie Axe"] = function(treeClass)
+        if treeClass == "Cherry" then
+            return 1.9
+        end
+        return 0.95
+    end,
+    ["Fire Axe"] = function(treeClass)
+        if treeClass == "Volcano" then
+            return 6.35
+        end
+        return 0.6
+    end,
+    ["Cave Axe"] = function(treeClass)
+        if treeClass == "CaveCrawler" then
+            return 7.2
+        end
+        return 0.4
+    end,
+    ["Frost Axe"] = function(treeClass)
+        if treeClass == "Frost" then
+            return 6
+        end
+        return 0.36
+    end,
+    ["Bird Axe"] = function(treeClass)
+        if treeClass == "CaveCrawler" then
+            return 3.9
+        elseif treeClass == "Volcano" then
+            return 2.5
+        end
+        return 1.65
+    end,
+    ["Bluesteel Axe"] = function(treeClass)
+        if treeClass == "BlueSpruce" then
+            return 12.1
+        end
+        return 2.8
+    end,
+    ["OverGrown Axe"] = function(treeClass)
+        if treeClass == "GreenSwampy" then
+            return 7
+        elseif treeClass == "GoldSwampy" then
+            return 5.3
+        end
+        return 0.8
+    end,
+    ["Gingerbread Axe"] = function(treeClass)
+        if treeClass == "Koa" then
+            return 11
+        elseif treeClass == "Walnut" then
+            return 8.5
+        end
+        return 1.2
+    end,
+    ["End Times Axe"] = function(treeClass)
+        if treeClass == "LoneCave" then
+            return 1e7
+        end
+        return 1.58
+    end,
+}
+
+local AXE_PRIORITY = {
+    "The Many Axe", "Amber Axe", "Bluesteel Axe", "Johiro", "Candy Corn Axe",
+    "Rukiryaxe", "Bird Axe", "Silver Axe", "End Times Axe", "Alpha Axe of Testing",
+    "Pig Axe", "Hardened Axe", "Beta Axe of Bosses", "Beesaxe", "Gingerbread Axe",
+    "Pie Axe", "Steel Axe", "CHICKEN AXE", "OverGrown Axe", "Spearmint Axe",
+    "Fire Axe", "Plain Axe", "Rusty Axe", "Cave Axe", "Frost Axe",
+    "Basic Hatchet", "Candy Cane Axe", "Refined Axe", "Inverse Axe",
+}
+
+local AXE_RANK = {}
+for rank, name in ipairs(AXE_PRIORITY) do
+    AXE_RANK[name] = rank
+end
+
+local selectedTree
+local quantity = 1
+local clickToSell = false
+local cutterOn = false
+local hoverOn = false
+
+local started = false
+local mounted = false
+local session = 0
+local chopping = false
+local chopSession = false
+local chopLogs = false
+local teleporting = false
+local moveMode
+
+local preChopCFrame
+local preChopCamera
+local preChopLogs = {}
+local lockConn
+local diedConn
+
+local options = {}
+local disabled = {}
+
+local root
+local treeBtn
+local treeCaption
+local quantityLabel
+local quantityFill
+local quantitySlider
+local getBtn
+local chopBtn
+local tpBtn
+local sellBtn
+local clickBtn
+local cutterBtn
+local hoverBtn
+local statusLabel
+local menu
+local backdrop
+local menuOpen = false
+local statusText = "Off"
+local guiConns = {}
+local watchConns = {}
+local soundConns = {}
+
+local sellGen = 0
+local sellConns = {}
+local sellOutline
+local sellHover
+local sellBusy = false
+
+local cutterGen = 0
+local cutterConns = {}
+local cutterOutline
+local cutterPlanes = {}
+local cutterTracked
+local cutterTarget
+local cutterCutting = false
+local cutterQueue = {}
+local cutterMarks = {}
+local cutterStatus
+local cutterTimes = 0
+local cutterTimeTotal = 0
+
+local hoverConn
+local hoverBillboard
+local hoverModel
+
+local api = {}
+
+local function make(className, props, parent)
+    local inst = Instance.new(className)
+    for key, value in pairs(props) do
+        inst[key] = value
+    end
+    inst.Parent = parent
+    return inst
+end
+
+local function track(bucket, conn)
+    table.insert(bucket, conn)
+    return conn
+end
+
+local function clearBucket(bucket)
+    for _, conn in ipairs(bucket) do
+        conn:Disconnect()
+    end
+    table.clear(bucket)
+end
+
+local function warnJell(message)
+    warn("[Jell] TreeCutter " .. tostring(message))
+end
+
+local function setStatus(text)
+    statusText = text
+    if statusLabel and statusLabel.Parent then
+        statusLabel.Text = text
+    end
+end
+
+local function alive(token)
+    return started and token == session
+end
+
+local function currentRoot()
+    local character = Player.Character
+    if not character then
+        return nil
+    end
+    return character:FindFirstChild("HumanoidRootPart")
+end
+
+local function currentCamera()
+    return Workspace.CurrentCamera
+end
+
+local function axeDamage(axeName, treeClass)
+    local fn = AXE_DAMAGE[axeName]
+    if fn then
+        return fn(treeClass)
+    end
+    return 1
+end
+
+local function readAxeName(tool)
+    if not tool then
+        return nil
+    end
+    local tip = tool:FindFirstChild("ToolTip")
+    if tip and tip:IsA("StringValue") then
+        return tip.Value
+    end
+    return tool.ToolTip
+end
+
+local function eachTool(callback)
+    local character = Player.Character
+    if character then
+        local equipped = character:FindFirstChildOfClass("Tool")
+        if equipped then
+            callback(equipped)
+        end
+    end
+    local backpack = Player:FindFirstChild("Backpack")
+    if backpack then
+        for _, tool in ipairs(backpack:GetChildren()) do
+            callback(tool)
+        end
+    end
+end
+
+local function bestAxe(treeClass, forPlanks)
+    local candidates = {}
+    eachTool(function(tool)
+        if not tool:IsA("Tool") or tool.Name == "BlueprintTool" then
+            return
+        end
+        local axeName = readAxeName(tool)
+        if not axeName then
+            return
+        end
+        if forPlanks and treeClass == "LoneCave" and axeName ~= "End Times Axe" then
+            return
+        end
+        local score
+        if treeClass then
+            score = axeDamage(axeName, treeClass)
+        else
+            score = 1 / (AXE_RANK[axeName] or 2 ^ 53)
+        end
+        table.insert(candidates, {
+            tool = tool,
+            name = axeName,
+            score = score,
+        })
+    end)
+    if #candidates == 0 then
+        return nil, nil, 0
+    end
+    if forPlanks then
+        for _, candidate in ipairs(candidates) do
+            if candidate.name == "Refined Axe" then
+                return candidate.tool, candidate.name, 12
+            end
+        end
+    end
+    table.sort(candidates, function(a, b)
+        return a.score > b.score
+    end)
+    local best = candidates[1]
+    return best.tool, best.name, best.score
+end
+
+local function isTreeRegion(name)
+    return string.lower(name):match("treeregion") ~= nil
+end
+
+local function eachTreeRegion(callback)
+    for _, folder in ipairs(Workspace:GetChildren()) do
+        if isTreeRegion(folder.Name) then
+            callback(folder)
+        end
+    end
+end
+
+local function sectionCount(model, descendants)
+    local count = 0
+    local list = descendants and model:GetDescendants() or model:GetChildren()
+    for _, part in ipairs(list) do
+        if part.Name == "WoodSection" and (not descendants or part:IsA("BasePart")) then
+            count = count + 1
+        end
+    end
+    return count
+end
+
+local function isOwned(model)
+    local owner = model:FindFirstChild("Owner")
+    if owner then
+        if owner:IsA("ObjectValue") and owner.Value == Player then
+            return true
+        end
+        if owner:IsA("StringValue") and owner.Value == Player.Name then
+            return true
+        end
+        local nested = owner:FindFirstChild("OwnerString")
+        if nested and nested:IsA("StringValue") and nested.Value == Player.Name then
+            return true
+        end
+    end
+    local ownerString = model:FindFirstChild("OwnerString")
+    return ownerString and ownerString:IsA("StringValue") and ownerString.Value == Player.Name
+end
+
+local function scanClasses()
+    local enabled = {}
+    local present = {}
+    eachTreeRegion(function(folder)
+        for _, model in ipairs(folder:GetChildren()) do
+            if model:IsA("Model") then
+                local treeClass = model:FindFirstChild("TreeClass")
+                if treeClass and treeClass:IsA("StringValue") then
+                    present[treeClass.Value] = true
+                    if sectionCount(model, false) > 1 then
+                        enabled[treeClass.Value] = true
+                    end
+                end
+            end
+        end
+    end)
+    return enabled, present
+end
+
+local function buildOptions()
+    local enabled, present = scanClasses()
+    local list = {}
+    local blocked = {}
+    local seen = {}
+    for _, name in ipairs(PRIORITY) do
+        if enabled[name] then
+            table.insert(list, name)
+            seen[name] = true
+        end
+    end
+    local extras = {}
+    for name in pairs(enabled) do
+        if not seen[name] then
+            table.insert(extras, name)
+        end
+    end
+    table.sort(extras)
+    for _, name in ipairs(extras) do
+        table.insert(list, name)
+        seen[name] = true
+    end
+    for _, name in ipairs(PRIORITY) do
+        if not enabled[name] and present[name] then
+            table.insert(list, name)
+            blocked[name] = true
+            seen[name] = true
+        end
+    end
+    for _, name in ipairs(PRIORITY) do
+        if not seen[name] then
+            table.insert(list, name)
+            blocked[name] = true
+        end
+    end
+    return list, blocked
+end
+
+local function firstEnabled()
+    for _, name in ipairs(options) do
+        if not disabled[name] then
+            return name
+        end
+    end
+    return nil
+end
+
+local function treeReady(name)
+    if type(name) ~= "string" or name == "" then
+        return false
+    end
+    for _, option in ipairs(options) do
+        if option == name then
+            return not disabled[name]
+        end
+    end
+    return false
+end
+
+local function findPriorityTree(treeClass)
+    local best
+    local most = -1
+    eachTreeRegion(function(folder)
+        for _, model in ipairs(folder:GetChildren()) do
+            if model:IsA("Model") then
+                local classValue = model:FindFirstChild("TreeClass")
+                if classValue and classValue.Value == treeClass then
+                    local count = sectionCount(model, false)
+                    if not (treeClass == "Generic" and count < 12) and count > most then
+                        most = count
+                        best = model
+                    end
+                end
+            end
+        end
+    end)
+    return best
+end
+
+local function sectionsBottomFirst(model)
+    local sections = {}
+    for _, part in ipairs(model:GetChildren()) do
+        if part.Name == "WoodSection" then
+            table.insert(sections, part)
+        end
+    end
+    table.sort(sections, function(a, b)
+        return a.Position.Y < b.Position.Y
+    end)
+    return sections
+end
+
+local function baseSection(model)
+    local sections = sectionsBottomFirst(model)
+    local picked = sections[1]
+    for _, section in ipairs(sections) do
+        local id = section:FindFirstChild("ID")
+        if id and id.Value == 1 then
+            return section
+        end
+    end
+    return picked
+end
+
+local function snapshotLogs()
+    preChopLogs = {}
+    local folder = Workspace:FindFirstChild("LogModels")
+    if not folder then
+        return
+    end
+    for _, model in ipairs(folder:GetChildren()) do
+        preChopLogs[model] = true
+    end
+end
+
+local function ownedInnerWood(singleSection)
+    local results = {}
+    local folder = Workspace:FindFirstChild("LogModels")
+    if not folder then
+        return results
+    end
+    for _, model in ipairs(folder:GetChildren()) do
+        if model:IsA("Model") and isOwned(model) then
+            if not singleSection or sectionCount(model, true) == 1 then
+                local inner = model:FindFirstChild("InnerWood")
+                if inner and inner:IsA("BasePart") then
+                    table.insert(results, inner)
+                end
+            end
+        end
+    end
+    return results
+end
+
+local function newStumps(treeClass)
+    local results = {}
+    local folder = Workspace:FindFirstChild("LogModels")
+    if not folder then
+        return results
+    end
+    for _, model in ipairs(folder:GetChildren()) do
+        if not preChopLogs[model] and model:IsA("Model") then
+            local classValue = model:FindFirstChild("TreeClass")
+            if classValue and classValue.Value == treeClass then
+                local inner = model:FindFirstChild("InnerWood")
+                if inner and inner:IsA("BasePart") then
+                    table.insert(results, inner)
+                end
+            end
+        end
+    end
+    return results
+end
+
+local function treeHasFallen(treeClass)
+    local folder = Workspace:FindFirstChild("LogModels")
+    if not folder then
+        return false
+    end
+    for _, model in ipairs(folder:GetChildren()) do
+        if not preChopLogs[model] and model:IsA("Model") then
+            local classValue = model:FindFirstChild("TreeClass")
+            if classValue and classValue.Value == treeClass then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function findRemote(folderName, remoteName)
+    local folder = ReplicatedStorage:FindFirstChild(folderName)
+    return folder and folder:FindFirstChild(remoteName)
+end
+
+local function cutEventFor(section)
+    local current = section
+    while current and current ~= Workspace do
+        local cutEvent = current:FindFirstChild("CutEvent")
+        if cutEvent then
+            return cutEvent
+        end
+        current = current.Parent
+    end
+    return nil
+end
+
+local function fireCut(section, tool, axeName, treeClass, height, shouldStop)
+    if not section or not section.Parent then
+        return
+    end
+    local id = section:FindFirstChild("ID")
+    local cutEvent = cutEventFor(section)
+    local remote = findRemote("Interaction", "RemoteProxy")
+    if not id or not cutEvent or not remote then
+        return
+    end
+    local args = {
+        sectionId = id.Value,
+        faceVector = Vector3.new(0, 0, -1),
+        height = height,
+        hitPoints = axeDamage(axeName, treeClass),
+        cooldown = 0,
+        cuttingClass = "Axe",
+        tool = tool,
+    }
+    for _ = 1, FIRES_PER_SECTION do
+        if not section.Parent then
+            break
+        end
+        if shouldStop and shouldStop() then
+            break
+        end
+        remote:FireServer(cutEvent, args)
+        task.wait(FIRE_DELAY)
+    end
+end
+
+local function cutHeightFrac(sizeY)
+    return math.clamp(0.1 + (8 - sizeY) / 60, 0.1, 0.2)
+end
+
+local function stopLock()
+    if lockConn then
+        lockConn:Disconnect()
+        lockConn = nil
+    end
+end
+
+local function cleanupChop()
+    chopping = false
+    stopLock()
+    if diedConn then
+        diedConn:Disconnect()
+        diedConn = nil
+    end
+    local rootPart = currentRoot()
+    if rootPart and preChopCFrame then
+        rootPart.CFrame = preChopCFrame
+        rootPart.AssemblyLinearVelocity = Vector3.zero
+    end
+    Player.CameraMode = Enum.CameraMode.Classic
+    local camera = currentCamera()
+    if camera and preChopCamera then
+        camera.CFrame = preChopCamera
+    end
+    preChopCFrame = nil
+    preChopCamera = nil
+end
+
+local function waitForRespawn(token)
+    local character = Player.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    if not character or not humanoid or humanoid.Health <= 0 then
+        Player.CharacterAdded:Wait()
+    end
+    local deadline = os.clock() + 30
+    repeat
+        if not alive(token) then
+            return false
+        end
+        task.wait(0.1)
+        character = Player.Character
+        humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    until (character and humanoid and humanoid.Health > 0 and character:FindFirstChild("HumanoidRootPart"))
+        or os.clock() > deadline
+    task.wait(RESPAWN_DELAY)
+    return alive(token)
+end
+
+local function lastInteraction(model)
+    local owner = model:FindFirstChild("Owner")
+    if owner then
+        local value = owner:FindFirstChild("LastInteraction")
+        if value then
+            return value
+        end
+    end
+    return model:FindFirstChild("LastInteraction")
+end
+
+local function teleportPart(target, goal, token, returnToOrigin)
+    if not target or not target.Parent or not alive(token) then
+        return
+    end
+    local drag = findRemote("Interaction", "ClientIsDragging")
+    local rootPart = currentRoot()
+    if not drag or not rootPart then
+        return
+    end
+    local model = target:FindFirstAncestorOfClass("Model") or target.Parent
+    local saved = rootPart.CFrame
+    local flat = (rootPart.Position - target.Position) * Vector3.new(1, 0, 1)
+    if flat.Magnitude > 10 then
+        rootPart.CFrame = CFrame.new(target.Position + Vector3.new(0, 3, 0))
+    end
+
+    local owner = model:FindFirstChild("Owner")
+    local ownerString = owner and owner:FindFirstChild("OwnerString")
+    if ownerString and ownerString.Value ~= Player.Name then
+        for attempt = 1, 5 do
+            local deadline = os.clock() + (0.25 * attempt)
+            while os.clock() < deadline do
+                if not alive(token) or not target.Parent then
+                    return
+                end
+                pcall(function()
+                    drag:FireServer(model)
+                end)
+                task.wait()
+            end
+            if target.Parent then
+                target.CFrame = goal
+            end
+            task.wait(0.2)
+            if target.Parent and (target.Position - goal.Position).Magnitude < 2 then
+                break
+            end
+        end
+        task.wait(0.1)
+    else
+        task.wait(0.05)
+        local touched = lastInteraction(model)
+        if touched then
+            local thread = coroutine.running()
+            local fired = false
+            local conn = touched:GetPropertyChangedSignal("Value"):Connect(function()
+                if not fired then
+                    fired = true
+                    task.spawn(thread)
+                end
+            end)
+            local loop = task.spawn(function()
+                local deadline = os.clock() + 1
+                while not fired and os.clock() < deadline and alive(token) do
+                    pcall(function()
+                        drag:FireServer(model)
+                    end)
+                    task.wait()
+                end
+                if not fired then
+                    fired = true
+                    task.spawn(thread)
+                end
+            end)
+            coroutine.yield()
+            conn:Disconnect()
+            pcall(function()
+                task.cancel(loop)
+            end)
+        else
+            local deadline = os.clock() + 0.5
+            while os.clock() < deadline and alive(token) do
+                pcall(function()
+                    drag:FireServer(model)
+                end)
+                task.wait()
+            end
+        end
+        if target.Parent then
+            target.CFrame = goal
+        end
+        task.wait(0.1)
+    end
+
+    if returnToOrigin and alive(token) then
+        local back = currentRoot()
+        if back then
+            back.CFrame = saved
+        end
+    end
+end
+
+local function teleportMany(parts, goalFor, token)
+    teleporting = true
+    for index, part in ipairs(parts) do
+        if not alive(token) then
+            break
+        end
+        if part and part.Parent then
+            teleportPart(part, goalFor(index, part), token, true)
+        end
+    end
+    teleporting = false
+end
+
+local function waitForLogs(treeClass, token)
+    local folder = Workspace:FindFirstChild("LogModels")
+    if not folder then
+        task.wait(1.5)
+        return
+    end
+    local woods = {}
+    for _, model in ipairs(folder:GetChildren()) do
+        if not preChopLogs[model] and model:IsA("Model") then
+            local classValue = model:FindFirstChild("TreeClass")
+            if classValue and classValue.Value == treeClass then
+                local inner = model:FindFirstChild("InnerWood")
+                if inner and inner:IsA("BasePart") then
+                    table.insert(woods, inner)
+                end
+            end
+        end
+    end
+    if #woods == 0 then
+        task.wait(1.5)
+        return
+    end
+    local deadline = os.clock() + 10
+    local stableFrom
+    while os.clock() < deadline and alive(token) do
+        local still = true
+        for _, inner in ipairs(woods) do
+            if inner.Parent and inner.AssemblyLinearVelocity.Magnitude > 0.5 then
+                still = false
+                break
+            end
+        end
+        if still then
+            if not stableFrom then
+                stableFrom = os.clock()
+            elseif os.clock() - stableFrom >= 0.3 then
+                return
+            end
+        else
+            stableFrom = nil
+        end
+        task.wait(0.05)
+    end
+end
+
+local function invokeDialog(remote, npcArg, action)
+    local thread = coroutine.running()
+    local done = false
+    local worker = task.spawn(function()
+        pcall(function()
+            remote:InvokeServer(npcArg, action)
+        end)
+        if not done then
+            done = true
+            task.spawn(thread)
+        end
+    end)
+    task.delay(7, function()
+        if not done then
+            done = true
+            pcall(function()
+                task.cancel(worker)
+            end)
+            task.spawn(thread)
+        end
+    end)
+    coroutine.yield()
+end
+
+local bridgeId
+
+local function payBridgeToll(token)
+    local bridge = Workspace:FindFirstChild("Bridge")
+    local booth = bridge and bridge:FindFirstChild("TollBooth0")
+    local seranok = booth and booth:FindFirstChild("Seranok")
+    if not seranok then
+        warnJell("Seranok not found")
+        return
+    end
+    local rootPart = currentRoot()
+    if not rootPart or not alive(token) then
+        return
+    end
+    local npcRoot = seranok:FindFirstChild("HumanoidRootPart")
+    if npcRoot then
+        rootPart.CFrame = CFrame.new(npcRoot.Position + Vector3.new(3, 0, 0))
+    else
+        rootPart.CFrame = seranok:GetPivot() * CFrame.new(3, 0, 0)
+    end
+    rootPart.AssemblyLinearVelocity = Vector3.zero
+    task.wait(0.1)
+    if not seranok:FindFirstChild("Dialog") then
+        Instance.new("Dialog", seranok)
+    end
+    local prompt = findRemote("NPCDialog", "PromptChat")
+    local chat = findRemote("NPCDialog", "PlayerChatted")
+    if not prompt or not chat then
+        return
+    end
+    if not bridgeId then
+        local lastData
+        local conn = prompt.OnClientEvent:Connect(function(_, data)
+            if data then
+                lastData = data
+            end
+        end)
+        pcall(function()
+            prompt:FireServer(true, seranok, seranok.Dialog)
+        end)
+        local deadline = os.clock() + 5
+        repeat
+            task.wait(0.05)
+        until lastData or os.clock() > deadline or not alive(token)
+        conn:Disconnect()
+        pcall(function()
+            prompt:FireServer(false, seranok, seranok.Dialog)
+        end)
+        task.wait(0.1)
+        if not lastData then
+            warnJell("Failed to get Seranok id")
+            return
+        end
+        bridgeId = lastData.ID
+    end
+    local npcArg = {
+        ID = bridgeId,
+        Character = seranok,
+        Name = "Seranok",
+        Dialog = seranok.Dialog,
+    }
+    invokeDialog(chat, npcArg, "Initiate")
+    task.wait(0.05)
+    invokeDialog(chat, npcArg, "ConfirmPurchase")
+    task.wait(0.05)
+    invokeDialog(chat, npcArg, "EndChat")
+    task.wait(1.5)
+end
+
+local function chopTree(treeClass, token)
+    if not alive(token) or chopping then
+        return
+    end
+    snapshotLogs()
+    local model = findPriorityTree(treeClass)
+    if not model then
+        setStatus("No trees")
+        return
+    end
+    local tool, axeName = bestAxe(treeClass, false)
+    if not tool then
+        setStatus("No axe")
+        return
+    end
+    local rootPart = currentRoot()
+    local camera = currentCamera()
+    if not rootPart or not camera then
+        return
+    end
+    preChopCFrame = rootPart.CFrame
+    preChopCamera = camera.CFrame
+    chopping = true
+    setStatus("Chopping")
+
+    if treeClass == "LoneCave" then
+        payBridgeToll(token)
+        if not alive(token) or not chopping then
+            cleanupChop()
+            return
+        end
+    end
+
+    local target = baseSection(model)
+    rootPart = currentRoot()
+    if not target or not rootPart then
+        cleanupChop()
+        return
+    end
+    rootPart.CFrame = target.CFrame
+    rootPart.AssemblyLinearVelocity = Vector3.zero
+
+    local function startLock()
+        stopLock()
+        lockConn = RunService.Heartbeat:Connect(function()
+            local part = currentRoot()
+            if part and target and target.Parent and chopping then
+                part.CFrame = target.CFrame
+                part.AssemblyLinearVelocity = Vector3.zero
+            end
+        end)
+    end
+
+    local playerDied = false
+    local function hookDied()
+        if diedConn then
+            diedConn:Disconnect()
+            diedConn = nil
+        end
+        local humanoid = Player.Character and Player.Character:FindFirstChildOfClass("Humanoid")
+        if not humanoid then
+            return
+        end
+        diedConn = humanoid.Died:Connect(function()
+            playerDied = true
+            stopLock()
+        end)
+    end
+
+    hookDied()
+    startLock()
+    task.wait(SYNC_DELAY)
+
+    while alive(token) and chopping and not treeHasFallen(treeClass) do
+        if playerDied then
+            stopLock()
+            if not waitForRespawn(token) or not chopping or treeHasFallen(treeClass) then
+                break
+            end
+            tool, axeName = bestAxe(treeClass, false)
+            if not tool then
+                setStatus("No axe")
+                break
+            end
+            local resumed = currentRoot()
+            if resumed and target and target.Parent then
+                resumed.CFrame = target.CFrame
+                resumed.AssemblyLinearVelocity = Vector3.zero
+            end
+            playerDied = false
+            hookDied()
+            startLock()
+            task.wait(SYNC_DELAY)
+        end
+        if not target or not target.Parent then
+            target = baseSection(model)
+            if not target then
+                break
+            end
+        end
+        fireCut(target, tool, axeName, treeClass, target.Size.Y * cutHeightFrac(target.Size.Y), function()
+            return treeHasFallen(treeClass) or playerDied or not alive(token) or not chopping
+        end)
+        task.wait(SWEEP_DELAY)
+    end
+
+    local finished = alive(token) and chopping
+    cleanupChop()
+    if not finished then
+        return
+    end
+    task.wait(0.3)
+    waitForLogs(treeClass, token)
+    local stumps = newStumps(treeClass)
+    local dropRoot = currentRoot()
+    if #stumps > 0 and dropRoot and alive(token) then
+        setStatus("Teleporting")
+        teleportMany(stumps, function(index)
+            return dropRoot.CFrame * CFrame.new((index - 1) * 5, 0, -LOG_DROP)
+        end, token)
+    end
+end
+
+local function chopOwnedLogs(token)
+    local folder = Workspace:FindFirstChild("LogModels")
+    if not folder then
+        setStatus("No logs")
+        return
+    end
+    local queue = {}
+    for _, model in ipairs(folder:GetChildren()) do
+        if model:IsA("Model") and isOwned(model) then
+            table.insert(queue, model)
+        end
+    end
+    if #queue == 0 then
+        setStatus("No logs")
+        return
+    end
+    chopLogs = true
+    setStatus("Chopping logs")
+
+    local function countOf(model)
+        return sectionCount(model, true)
+    end
+
+    local function stumpOf(model)
+        local inner = model:FindFirstChild("InnerWood", true)
+        if not inner then
+            return nil
+        end
+        for _, desc in ipairs(model:GetDescendants()) do
+            if desc:IsA("Weld") or desc:IsA("ManualWeld") then
+                if desc.Part0 == inner and desc.Part1 and desc.Part1.Name == "WoodSection" then
+                    return desc.Part1
+                end
+                if desc.Part1 == inner and desc.Part0 and desc.Part0.Name == "WoodSection" then
+                    return desc.Part0
+                end
+            end
+        end
+        return nil
+    end
+
+    while #queue > 0 and chopLogs and alive(token) do
+        local model = table.remove(queue, 1)
+        if model and model.Parent then
+            local classValue = model:FindFirstChild("TreeClass")
+            local treeClass = classValue and classValue.Value or "Generic"
+            local tool, axeName = bestAxe(treeClass, false)
+            local stump = stumpOf(model)
+            if tool then
+                while model.Parent and countOf(model) > 1 and chopLogs and alive(token) do
+                    local links = {}
+                    for _, desc in ipairs(model:GetDescendants()) do
+                        if (desc:IsA("Weld") or desc:IsA("ManualWeld")) and desc.Name == "Tree Weld" then
+                            local part0 = desc.Part0
+                            local part1 = desc.Part1
+                            if part0 and part1 and part0.Name == "WoodSection" and part1.Name == "WoodSection" then
+                                links[part0] = (links[part0] or 0) + 1
+                                links[part1] = (links[part1] or 0) + 1
+                            end
+                        end
+                    end
+                    local tip
+                    for section, count in pairs(links) do
+                        if count == 1 and section ~= stump and section.Parent then
+                            tip = section
+                            break
+                        end
+                    end
+                    if not tip then
+                        break
+                    end
+                    local weld
+                    local parent
+                    for _, desc in ipairs(model:GetDescendants()) do
+                        if (desc:IsA("Weld") or desc:IsA("ManualWeld")) and desc.Name == "Tree Weld" then
+                            if desc.Part0 == tip and desc.Part1 and desc.Part1.Name == "WoodSection" then
+                                weld = desc
+                                parent = desc.Part1
+                                break
+                            end
+                            if desc.Part1 == tip and desc.Part0 and desc.Part0.Name == "WoodSection" then
+                                weld = desc
+                                parent = desc.Part0
+                                break
+                            end
+                        end
+                    end
+                    if not weld or not parent then
+                        break
+                    end
+                    local cutSection = parent:FindFirstChild("ID") and parent or tip
+                    local joint = (weld.Part0.CFrame * weld.C0).Position
+                    local localY = (cutSection.CFrame:Inverse() * CFrame.new(joint)).Position.Y
+                    local height = math.clamp(localY + cutSection.Size.Y / 2, 0.05, cutSection.Size.Y - 0.05)
+                    local rootPart = currentRoot()
+                    if rootPart then
+                        rootPart.CFrame = CFrame.new(joint + cutSection.CFrame.RightVector * 4)
+                        rootPart.AssemblyLinearVelocity = Vector3.zero
+                        task.wait(0.1)
+                    end
+                    local before = {}
+                    for _, child in ipairs(folder:GetChildren()) do
+                        before[child] = true
+                    end
+                    fireCut(cutSection, tool, axeName, treeClass, height, function()
+                        return not chopLogs or not alive(token)
+                    end)
+                    task.wait(0.1)
+                    for _, child in ipairs(folder:GetChildren()) do
+                        if not before[child] and child:IsA("Model") and isOwned(child) and countOf(child) > 1 then
+                            table.insert(queue, child)
+                        end
+                    end
+                end
+            end
+        end
+    end
+    chopLogs = false
+end
+
+local function clearSellOutline()
+    if sellOutline then
+        sellOutline:Destroy()
+        sellOutline = nil
+    end
+    sellHover = nil
+end
+
+local function showSellOutline(model)
+    if sellHover == model then
+        return
+    end
+    clearSellOutline()
+    sellHover = model
+    sellOutline = Instance.new("SelectionBox")
+    sellOutline.Name = "TreeCutterSell"
+    sellOutline.Adornee = model
+    sellOutline.Color3 = CUT_COLOR
+    sellOutline.SurfaceColor3 = CUT_COLOR
+    sellOutline.LineThickness = 0.08
+    sellOutline.SurfaceTransparency = 0.65
+    sellOutline.Parent = Workspace
+end
+
+local function ownedPlank(part)
+    if not part then
+        return nil
+    end
+    local playerModels = Workspace:FindFirstChild("PlayerModels")
+    if not playerModels then
+        return nil
+    end
+    local current = part
+    while current and current ~= Workspace do
+        if current:IsA("Model") and current.Name == "Plank" and current.Parent == playerModels then
+            if isOwned(current) then
+                return current
+            end
+            return nil
+        end
+        current = current.Parent
+    end
+    return nil
+end
+
+local function disableSell()
+    sellGen = sellGen + 1
+    sellBusy = false
+    clearBucket(sellConns)
+    clearSellOutline()
+end
+
+local function enableSell()
+    disableSell()
+    local gen = sellGen
+    local token = session
+    track(sellConns, RunService.RenderStepped:Connect(function()
+        if gen ~= sellGen or not clickToSell then
+            return
+        end
+        if sellBusy then
+            clearSellOutline()
+            return
+        end
+        local plank = ownedPlank(Player:GetMouse().Target)
+        if plank then
+            showSellOutline(plank)
+        else
+            clearSellOutline()
+        end
+    end))
+    track(sellConns, UserInputService.InputBegan:Connect(function(input, processed)
+        if processed or gen ~= sellGen or sellBusy or not clickToSell then
+            return
+        end
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1 then
+            return
+        end
+        local plank = sellHover
+        if not plank or not plank.Parent then
+            return
+        end
+        clearSellOutline()
+        sellBusy = true
+        task.spawn(function()
+            local target = plank.PrimaryPart
+            if not target then
+                for _, desc in ipairs(plank:GetDescendants()) do
+                    if desc:IsA("BasePart") then
+                        target = desc
+                        break
+                    end
+                end
+            end
+            if target and alive(token) and gen == sellGen then
+                teleportPart(target, PLANK_SELL_CF, token, true)
+                local deadline = os.clock() + PLANK_LOCK_TIME
+                while os.clock() < deadline and target.Parent and gen == sellGen and alive(token) do
+                    target.CFrame = PLANK_SELL_CF
+                    target.AssemblyLinearVelocity = Vector3.zero
+                    target.AssemblyAngularVelocity = Vector3.zero
+                    RunService.Heartbeat:Wait()
+                end
+            end
+            if gen == sellGen then
+                sellBusy = false
+            end
+        end)
+    end))
+end
+
+local function plankClass(model)
+    local treeClass = model:FindFirstChild("TreeClass")
+    if treeClass and treeClass:IsA("StringValue") then
+        return treeClass.Value
+    end
+    for _, desc in ipairs(model:GetDescendants()) do
+        if desc.Name == "TreeClass" and desc:IsA("StringValue") then
+            return desc.Value
+        end
+    end
+    return nil
+end
+
+local function plankSection(model)
+    for _, desc in ipairs(model:GetDescendants()) do
+        if desc:IsA("BasePart") and desc:FindFirstChild("ID") then
+            return desc
+        end
+    end
+    return nil
+end
+
+local function cutStep(section)
+    return math.max(0.5, 1 / math.min(section.Size.X, section.Size.Z))
+end
+
+local function cutHeights(section)
+    local step = cutStep(section)
+    local heights = {}
+    local height = step
+    while height <= section.Size.Y - CUT_MIN_LEFTOVER + 0.001 do
+        table.insert(heights, height)
+        height = height + step
+    end
+    return heights, step
+end
+
+local function plankEligible(section, treeClass)
+    if not section then
+        return false
+    end
+    local heights = cutHeights(section)
+    if #heights == 0 or #heights > CUT_MAX_UNITS then
+        return false
+    end
+    if treeClass == "LoneCave" then
+        local tool = bestAxe("LoneCave", true)
+        if not tool then
+            return false
+        end
+    end
+    return true
+end
+
+local function clearCutPlanes()
+    for _, entry in ipairs(cutterPlanes) do
+        entry.part:Destroy()
+    end
+    table.clear(cutterPlanes)
+    cutterTracked = nil
+end
+
+local function clearCutterMarks()
+    for _, box in pairs(cutterMarks) do
+        box:Destroy()
+    end
+    table.clear(cutterMarks)
+end
+
+local function hideCutterStatus()
+    if cutterStatus then
+        cutterStatus:Destroy()
+        cutterStatus = nil
+    end
+end
+
+local function disableCutter()
+    cutterGen = cutterGen + 1
+    cutterCutting = false
+    cutterTarget = nil
+    table.clear(cutterQueue)
+    clearBucket(cutterConns)
+    clearCutPlanes()
+    clearCutterMarks()
+    hideCutterStatus()
+    if cutterOutline then
+        cutterOutline:Destroy()
+        cutterOutline = nil
+    end
+    cutterTimes = 0
+    cutterTimeTotal = 0
+end
+
+local function ensureCutterOutline()
+    if cutterOutline and cutterOutline.Parent then
+        return
+    end
+    cutterOutline = Instance.new("SelectionBox")
+    cutterOutline.Name = "TreeCutterOutline"
+    cutterOutline.Color3 = CUT_COLOR
+    cutterOutline.SurfaceColor3 = CUT_COLOR
+    cutterOutline.LineThickness = 0.04
+    cutterOutline.SurfaceTransparency = 0.8
+    cutterOutline.Parent = Workspace
+end
+
+local function showCutterOutline(model)
+    ensureCutterOutline()
+    cutterOutline.Adornee = model
+end
+
+local function rebuildPlanes(section)
+    clearCutPlanes()
+    if not section or not section.Parent then
+        return
+    end
+    local heights = cutHeights(section)
+    local sizeY = section.Size.Y
+    for _, height in ipairs(heights) do
+        local localCF = CFrame.new(0, -sizeY / 2 + height, 0)
+        local part = Instance.new("Part")
+        part.Name = "TreeCutterPlane"
+        part.Anchored = true
+        part.CanCollide = false
+        part.CanTouch = false
+        part.CanQuery = false
+        part.CastShadow = false
+        part.Size = Vector3.new(section.Size.X + 0.08, 0.04, section.Size.Z + 0.08)
+        part.Color = CUT_COLOR
+        part.Material = Enum.Material.Neon
+        part.Transparency = 0.2
+        part.CFrame = section.CFrame * localCF
+        part.Parent = Workspace
+        table.insert(cutterPlanes, {
+            part = part,
+            localCF = localCF,
+        })
+    end
+    cutterTracked = section
+end
+
+local function markQueued(plank)
+    if not plank or cutterMarks[plank] then
+        return
+    end
+    local box = Instance.new("SelectionBox")
+    box.Name = "TreeCutterQueue"
+    box.Adornee = plank
+    box.Color3 = QUEUE_COLOR
+    box.SurfaceColor3 = QUEUE_COLOR
+    box.LineThickness = 0.03
+    box.SurfaceTransparency = 0.85
+    box.Parent = Workspace
+    cutterMarks[plank] = box
+end
+
+local function unmark(plank)
+    local box = cutterMarks[plank]
+    if box then
+        box:Destroy()
+        cutterMarks[plank] = nil
+    end
+end
+
+local function queuePlank(plank)
+    if not plank or plank == cutterTarget then
+        return
+    end
+    for _, queued in ipairs(cutterQueue) do
+        if queued == plank then
+            return
+        end
+    end
+    table.insert(cutterQueue, plank)
+    markQueued(plank)
+end
+
+local function popQueued()
+    while #cutterQueue > 0 do
+        local plank = table.remove(cutterQueue, 1)
+        unmark(plank)
+        if plank and plank.Parent then
+            local section = plankSection(plank)
+            if section and plankEligible(section, plankClass(plank)) then
+                return plank
+            end
+        end
+    end
+    return nil
+end
+
+local function showCutterStatus(text)
+    hideCutterStatus()
+    local rootPart = currentRoot()
+    if not rootPart then
+        return nil
+    end
+    local board = Instance.new("BillboardGui")
+    board.Name = "TreeCutterCutStatus"
+    board.Size = UDim2.fromOffset(220, 36)
+    board.StudsOffset = Vector3.new(0, 4, 0)
+    board.AlwaysOnTop = true
+    board.Adornee = rootPart
+    board.Parent = rootPart
+    local label = make("TextLabel", {
+        Size = UDim2.fromScale(1, 1),
+        BackgroundColor3 = Color3.fromRGB(18, 18, 18),
+        BackgroundTransparency = 0.15,
+        BorderSizePixel = 0,
+        Font = Enum.Font.SourceSans,
+        Text = text,
+        TextSize = 16,
+        TextColor3 = TEXT,
+    }, board)
+    cutterStatus = board
+    return label
+end
+
+local function teleportAbove(section, cutHeight)
+    local rootPart = currentRoot()
+    if not rootPart or not section or not section.Parent then
+        return
+    end
+    local world = (section.CFrame * CFrame.new(0, -section.Size.Y / 2 + (cutHeight or 0) + 3, 0)).Position
+    if (rootPart.Position - world).Magnitude <= CUT_DETECT then
+        return
+    end
+    rootPart.CFrame = CFrame.new(world)
+    rootPart.AssemblyLinearVelocity = Vector3.zero
+    rootPart.AssemblyAngularVelocity = Vector3.zero
+end
+
+local function fireUntilSplit(section, tool, damage, height, gen)
+    local id = section:FindFirstChild("ID")
+    local cutEvent = cutEventFor(section)
+    local remote = findRemote("Interaction", "RemoteProxy")
+    if not id or not cutEvent or not remote then
+        return nil
+    end
+    local playerModels = Workspace:FindFirstChild("PlayerModels")
+    local snapshot = {}
+    if playerModels then
+        for _, model in ipairs(playerModels:GetChildren()) do
+            snapshot[model] = true
+        end
+    end
+    local args = {
+        sectionId = id.Value,
+        faceVector = Vector3.new(0, 0, -1),
+        height = height,
+        hitPoints = damage,
+        cooldown = 0,
+        cuttingClass = "Axe",
+        tool = tool,
+    }
+    local lastPos = section.Position
+    local originalY = section.Size.Y
+    local deadline = os.clock() + CUT_TIMEOUT
+    local function findNew()
+        if not playerModels then
+            return nil
+        end
+        for _, model in ipairs(playerModels:GetChildren()) do
+            if not snapshot[model] and model:IsA("Model") and model.Name == "Plank" and isOwned(model) then
+                local sectionPart = plankSection(model)
+                if sectionPart and (sectionPart.Position - lastPos).Magnitude <= CUT_DETECT then
+                    return sectionPart
+                end
+            end
+        end
+        return nil
+    end
+    while os.clock() < deadline and gen == cutterGen and cutterOn do
+        if section.Parent then
+            lastPos = section.Position
+        else
+            task.wait(0.05)
+            return findNew()
+        end
+        remote:FireServer(cutEvent, args)
+        task.wait(CUT_FIRE_DELAY)
+        if not section.Parent or section.Size.Y ~= originalY then
+            task.wait(0.05)
+            return findNew()
+        end
+    end
+    return nil
+end
+
+local function cutPlank(plank, gen)
+    if gen ~= cutterGen or not cutterOn then
+        return
+    end
+    cutterCutting = true
+    cutterTarget = plank
+    showCutterOutline(plank)
+    local treeClass = plankClass(plank)
+    local tool, _, damage = bestAxe(treeClass, true)
+    local section = plankSection(plank)
+    if not tool or not section then
+        cutterCutting = false
+        cutterTarget = nil
+        if cutterOutline then
+            cutterOutline.Adornee = nil
+        end
+        clearCutPlanes()
+        return
+    end
+    local step = cutStep(section)
+    local heights = cutHeights(section)
+    local cutsNeeded = #heights
+    local planksTotal = cutsNeeded + 1
+    local statusLbl = showCutterStatus(planksTotal .. " planks")
+    local cutsDone = 0
+    teleportAbove(section, step)
+    task.wait(0.1)
+    local current = section
+    while gen == cutterGen and cutterOn and current and current.Parent do
+        if current.Size.Y - step < CUT_MIN_LEFTOVER - 0.001 then
+            break
+        end
+        rebuildPlanes(current)
+        cutterTarget = current.Parent
+        showCutterOutline(cutterTarget)
+        teleportAbove(current, step)
+        local startedAt = os.clock()
+        local newSection = fireUntilSplit(current, tool, damage, step, gen)
+        local elapsed = os.clock() - startedAt
+        cutsDone = cutsDone + 1
+        cutterTimes = cutterTimes + 1
+        cutterTimeTotal = cutterTimeTotal + elapsed
+        clearCutPlanes()
+        if statusLbl and statusLbl.Parent then
+            local left = math.max(0, planksTotal - cutsDone - 1)
+            local eta = "--"
+            if cutterTimes > 0 and cutsNeeded - cutsDone > 0 then
+                local secs = math.floor((cutterTimeTotal / cutterTimes) * (cutsNeeded - cutsDone))
+                local mins = math.floor(secs / 60)
+                secs = secs % 60
+                eta = mins > 0 and string.format("%dm %ds", mins, secs) or string.format("%ds", secs)
+            elseif cutsNeeded - cutsDone <= 0 then
+                eta = "done"
+            end
+            local queued = #cutterQueue > 0 and ("  +" .. tostring(#cutterQueue)) or ""
+            statusLbl.Text = left .. " planks  " .. eta .. queued
+        end
+        if not newSection then
+            break
+        end
+        local nextPiece = current
+        if not (current.Parent and current.Size.Y > newSection.Size.Y) then
+            nextPiece = newSection
+        end
+        if nextPiece and nextPiece.Parent then
+            current = nextPiece
+            cutterTarget = nextPiece.Parent
+            showCutterOutline(cutterTarget)
+        end
+        task.wait(0.1)
+    end
+    cutterTimes = 0
+    cutterTimeTotal = 0
+    clearCutPlanes()
+    hideCutterStatus()
+    cutterCutting = false
+    if gen == cutterGen and cutterOn then
+        local nextPlank = popQueued()
+        if nextPlank then
+            task.spawn(cutPlank, nextPlank, gen)
+        else
+            cutterTarget = nil
+            if cutterOutline then
+                cutterOutline.Adornee = nil
+            end
+        end
+    end
+end
+
+local function enableCutter()
+    disableCutter()
+    local gen = cutterGen
+    local lastSection
+    track(cutterConns, RunService.Heartbeat:Connect(function()
+        if gen ~= cutterGen or not cutterTracked or not cutterTracked.Parent then
+            return
+        end
+        local cf = cutterTracked.CFrame
+        for _, entry in ipairs(cutterPlanes) do
+            if entry.part.Parent then
+                entry.part.CFrame = cf * entry.localCF
+            end
+        end
+    end))
+    track(cutterConns, RunService.RenderStepped:Connect(function()
+        if gen ~= cutterGen or cutterCutting or not cutterOn then
+            return
+        end
+        local target = Player:GetMouse().Target
+        local plank = ownedPlank(target)
+        if plank then
+            local section = plankSection(plank)
+            local treeClass = plankClass(plank)
+            if section and plankEligible(section, treeClass) then
+                if cutterTarget ~= plank then
+                    cutterTarget = plank
+                    showCutterOutline(plank)
+                end
+                if section ~= lastSection then
+                    lastSection = section
+                    rebuildPlanes(section)
+                end
+                return
+            end
+        end
+        local keep = cutterTarget and target and target:IsDescendantOf(cutterTarget)
+        if not keep and cutterTarget then
+            cutterTarget = nil
+            if cutterOutline then
+                cutterOutline.Adornee = nil
+            end
+            clearCutPlanes()
+            lastSection = nil
+        end
+    end))
+    track(cutterConns, UserInputService.InputBegan:Connect(function(input, processed)
+        if processed or gen ~= cutterGen or not cutterOn then
+            return
+        end
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1 then
+            return
+        end
+        local plank = ownedPlank(Player:GetMouse().Target)
+        if not plank then
+            return
+        end
+        local section = plankSection(plank)
+        if not plankEligible(section, plankClass(plank)) then
+            return
+        end
+        if cutterCutting then
+            queuePlank(plank)
+        else
+            task.spawn(cutPlank, plank, gen)
+        end
+    end))
+end
+
+local function woodVolume(model)
+    local total = 0
+    for _, part in ipairs(model:GetChildren()) do
+        if part.Name == "WoodSection" and part:IsA("BasePart") then
+            total = total + part.Size.X * part.Size.Y * part.Size.Z
+        end
+    end
+    return total
+end
+
+local function formatMoney(amount)
+    local text = tostring(math.floor(amount + 0.5))
+    local out = ""
+    local len = #text
+    for index = 1, len do
+        if index > 1 and (len - index + 1) % 3 == 0 then
+            out = out .. ","
+        end
+        out = out .. string.sub(text, index, index)
+    end
+    return "$" .. out
+end
+
+local function hoverInfo(model)
+    if not model or not model.Parent then
+        return nil
+    end
+    local volume = woodVolume(model)
+    if volume <= 0 then
+        return nil
+    end
+    local classValue = model:FindFirstChild("TreeClass")
+    local treeClass = classValue and classValue.Value or nil
+    local parentName = model.Parent.Name
+    if isTreeRegion(parentName) then
+        return formatMoney(volume * (TREE_RATES[treeClass or ""] or 1)), (treeClass or "Unknown") .. " tree"
+    end
+    if parentName == "PlayerModels" then
+        return formatMoney(volume * ((treeClass and PLANK_RATES[treeClass]) or 1)), (treeClass or "Unknown") .. " plank"
+    end
+    if parentName == "LogModels" then
+        return formatMoney(volume * ((treeClass and TREE_RATES[treeClass]) or 1)), (treeClass or "Unknown") .. " log"
+    end
+    return nil
+end
+
+local function destroyHover()
+    if hoverBillboard then
+        hoverBillboard:Destroy()
+        hoverBillboard = nil
+    end
+end
+
+local function hideHover()
+    destroyHover()
+    hoverModel = nil
+end
+
+local function showHover(valueText, labelText)
+    destroyHover()
+    local rootPart = currentRoot()
+    if not rootPart then
+        return
+    end
+    local board = Instance.new("BillboardGui")
+    board.Name = "TreeCutterHover"
+    board.Size = UDim2.fromOffset(180, 40)
+    board.StudsOffset = Vector3.new(0, 4, 0)
+    board.AlwaysOnTop = true
+    board.MaxDistance = 800
+    board.Adornee = rootPart
+    board.Parent = rootPart
+    local value = make("TextLabel", {
+        Size = UDim2.new(1, 0, 0, 22),
+        BackgroundTransparency = 1,
+        Font = Enum.Font.SourceSansBold,
+        Text = valueText,
+        TextSize = 18,
+        TextColor3 = TEXT,
+    }, board)
+    value.Name = "Value"
+    make("TextLabel", {
+        Size = UDim2.new(1, 0, 0, 16),
+        Position = UDim2.fromOffset(0, 22),
+        BackgroundTransparency = 1,
+        Font = Enum.Font.SourceSans,
+        Text = labelText,
+        TextSize = 14,
+        TextColor3 = MUTED,
+    }, board)
+    hoverBillboard = board
+end
+
+local function disableHover()
+    if hoverConn then
+        hoverConn:Disconnect()
+        hoverConn = nil
+    end
+    hideHover()
+end
+
+local function enableHover()
+    disableHover()
+    hoverConn = RunService.RenderStepped:Connect(function()
+        if not hoverOn then
+            return
+        end
+        local target = Player:GetMouse().Target
+        local model = target and target:FindFirstAncestorOfClass("Model")
+        if model == hoverModel then
+            return
+        end
+        hoverModel = model
+        if not model then
+            hideHover()
+            return
+        end
+        local valueText, labelText = hoverInfo(model)
+        if valueText then
+            showHover(valueText, labelText)
+        else
+            destroyHover()
+        end
+    end)
+end
+
+local function silenceSounds()
+    clearBucket(soundConns)
+    local function mute(parent)
+        for _, child in ipairs(parent:GetChildren()) do
+            if child.Name == "Alternate" and child:IsA("Sound") then
+                child.Volume = 0
+                pcall(function()
+                    child:Stop()
+                end)
+            end
+        end
+        track(soundConns, parent.ChildAdded:Connect(function(child)
+            if child.Name == "Alternate" and child:IsA("Sound") then
+                child.Volume = 0
+                pcall(function()
+                    child:Stop()
+                end)
+            end
+        end))
+    end
+    task.spawn(function()
+        local playerGui = Player:FindFirstChild("PlayerGui") or Player:WaitForChild("PlayerGui", 10)
+        local sounds = playerGui and playerGui:FindFirstChild("ClientSounds")
+        if not sounds or not started then
+            return
+        end
+        local function consider(child)
+            if child.Name == "Region_Main" or child.Name == "Region_Mountain" then
+                mute(child)
+            end
+        end
+        for _, child in ipairs(sounds:GetChildren()) do
+            consider(child)
+        end
+        track(soundConns, sounds.ChildAdded:Connect(consider))
+    end)
+end
+
+local function unwatch()
+    clearBucket(watchConns)
+end
+
+local function paintTree()
+    if treeCaption and treeCaption.Parent then
+        treeCaption.Text = selectedTree or "Select"
+        treeCaption.TextColor3 = treeReady(selectedTree) and TEXT or MUTED
+    end
+end
+
+local function paintQuantity()
+    if quantityLabel and quantityLabel.Parent then
+        quantityLabel.Text = "Quantity  " .. tostring(quantity)
+    end
+    if quantityFill and quantityFill.Parent then
+        local span = QUANTITY_MAX - QUANTITY_MIN
+        quantityFill.Size = UDim2.new((quantity - QUANTITY_MIN) / span, 0, 1, 0)
+    end
+end
+
+local function paintAction(button, active, idleText, activeText)
+    if not (button and button.Parent) then
+        return
+    end
+    if active then
+        button.Text = activeText
+        button.BackgroundColor3 = RED
+        button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    else
+        button.Text = idleText
+        button.BackgroundColor3 = BUTTON
+        button.TextColor3 = DARK
+    end
+end
+
+local function paintToggle(button, on)
+    if button and button.Parent then
+        button.Text = on and "On" or "Off"
+    end
+end
+
+local function paintAll()
+    paintTree()
+    paintQuantity()
+    paintAction(getBtn, chopSession, "Start", "Stop")
+    paintAction(chopBtn, chopLogs, "Start", "Stop")
+    paintAction(tpBtn, moveMode == "tp", "TP", "Working")
+    paintAction(sellBtn, moveMode == "sell", "Sell", "Selling")
+    paintToggle(clickBtn, clickToSell)
+    paintToggle(cutterBtn, cutterOn)
+    paintToggle(hoverBtn, hoverOn)
+    setStatus(statusText)
+end
+
+local function closeMenu()
+    menuOpen = false
+    if menu then
+        menu:Destroy()
+        menu = nil
+    end
+    if backdrop then
+        backdrop:Destroy()
+        backdrop = nil
+    end
+end
+
+local saveConfig
+
+local function rescan(keepBlocked)
+    local previous = selectedTree
+    options, disabled = buildOptions()
+    if not keepBlocked and previous and disabled[previous] then
+        selectedTree = firstEnabled() or previous
+    end
+    if selectedTree == nil then
+        selectedTree = firstEnabled()
+    end
+    paintTree()
+    if selectedTree ~= previous then
+        saveConfig()
+    end
+    if menuOpen then
+        closeMenu()
+    end
+end
+
+local function watchTrees()
+    unwatch()
+    local function watchFolder(folder)
+        track(watchConns, folder.ChildAdded:Connect(function()
+            task.delay(0.5, function()
+                if started then
+                    rescan(false)
+                end
+            end)
+        end))
+        track(watchConns, folder.ChildRemoved:Connect(function()
+            task.delay(0.5, function()
+                if started then
+                    rescan(false)
+                end
+            end)
+        end))
+    end
+    eachTreeRegion(watchFolder)
+    track(watchConns, Workspace.ChildAdded:Connect(function(child)
+        if isTreeRegion(child.Name) then
+            watchFolder(child)
+            task.delay(0.5, function()
+                if started then
+                    rescan(false)
+                end
+            end)
+        end
+    end))
+end
+
+function saveConfig()
+    if type(writefile) ~= "function" then
+        return
+    end
+    if type(makefolder) == "function" and type(isfolder) == "function" and not isfolder(CONFIG_DIR) then
+        pcall(makefolder, CONFIG_DIR)
+    end
+    local payload = {
+        tree = selectedTree,
+        quantity = quantity,
+        clickToSell = clickToSell,
+        cutter = cutterOn,
+        hoverValue = hoverOn,
+    }
+    local encodedOk, encoded = pcall(function()
+        return Services.HttpService:JSONEncode(payload)
+    end)
+    if encodedOk then
+        pcall(writefile, CONFIG_FILE, encoded)
+    end
+end
+
+local function readSavedConfig()
+    if type(readfile) ~= "function" then
+        return nil
+    end
+    if type(isfile) == "function" and not isfile(CONFIG_FILE) then
+        return nil
+    end
+    local ok, raw = pcall(readfile, CONFIG_FILE)
+    if not ok or type(raw) ~= "string" or raw == "" then
+        return nil
+    end
+    local decodedOk, data = pcall(function()
+        return Services.HttpService:JSONDecode(raw)
+    end)
+    if decodedOk and type(data) == "table" then
+        return data
+    end
+    return nil
+end
+
+local function applySaved(data)
+    if type(data) ~= "table" then
+        return
+    end
+    if type(data.tree) == "string" and data.tree ~= "" then
+        selectedTree = data.tree
+    end
+    local savedQuantity = tonumber(data.quantity)
+    if savedQuantity then
+        quantity = math.clamp(math.floor(savedQuantity + 0.5), QUANTITY_MIN, QUANTITY_MAX)
+    end
+    if type(data.clickToSell) == "boolean" then
+        clickToSell = data.clickToSell
+    end
+    if type(data.cutter) == "boolean" then
+        cutterOn = data.cutter
+    end
+    if type(data.hoverValue) == "boolean" then
+        hoverOn = data.hoverValue
+    end
+end
+
+applySaved(readSavedConfig())
+
+local function applyLiveToggles()
+    if clickToSell then
+        enableSell()
+    else
+        disableSell()
+    end
+    if cutterOn then
+        enableCutter()
+    else
+        disableCutter()
+    end
+    if hoverOn then
+        enableHover()
+    else
+        disableHover()
+    end
+end
+
+local function openMenu()
+    closeMenu()
+    if not root or not treeBtn then
+        return
+    end
+    menuOpen = true
+    backdrop = make("TextButton", {
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        Text = "",
+        AutoButtonColor = false,
+        ZIndex = 4,
+    }, root)
+    backdrop.MouseButton1Click:Connect(function()
+        task.defer(closeMenu)
+    end)
+    local top = treeBtn.AbsolutePosition.Y - root.AbsolutePosition.Y + treeBtn.AbsoluteSize.Y + 2
+    local height = math.min(#options * 22, 220)
+    menu = make("ScrollingFrame", {
+        Size = UDim2.new(1, -16, 0, height),
+        Position = UDim2.fromOffset(8, top),
+        BackgroundColor3 = Color3.fromRGB(32, 32, 32),
+        BorderSizePixel = 0,
+        ScrollBarThickness = 3,
+        ScrollBarImageColor3 = Color3.fromRGB(70, 70, 70),
+        CanvasSize = UDim2.new(),
+        AutomaticCanvasSize = Enum.AutomaticSize.Y,
+        Active = true,
+        ZIndex = 5,
+    }, root)
+    make("UIListLayout", {
+        FillDirection = Enum.FillDirection.Vertical,
+        SortOrder = Enum.SortOrder.LayoutOrder,
+    }, menu)
+    for index, name in ipairs(options) do
+        local blocked = disabled[name] == true
+        local picked = name == selectedTree
+        local row = make("TextButton", {
+            Size = UDim2.new(1, 0, 0, 22),
+            BackgroundColor3 = FIELD,
+            BackgroundTransparency = picked and 0 or 1,
+            BorderSizePixel = 0,
+            Font = Enum.Font.SourceSans,
+            Text = name,
+            TextSize = 15,
+            TextColor3 = blocked and MUTED or TEXT,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            AutoButtonColor = false,
+            LayoutOrder = index,
+            Active = not blocked,
+            ZIndex = 5,
+        }, menu)
+        make("UIPadding", {
+            PaddingLeft = UDim.new(0, 6),
+        }, row)
+        row.MouseButton1Click:Connect(function()
+            if blocked then
+                return
+            end
+            selectedTree = name
+            paintTree()
+            saveConfig()
+            task.defer(closeMenu)
+        end)
+    end
+end
+
+local function fieldLabel(parent, text, y)
+    return make("TextLabel", {
+        Size = UDim2.new(1, 0, 0, 16),
+        Position = UDim2.fromOffset(0, y),
+        BackgroundTransparency = 1,
+        Font = Enum.Font.SourceSans,
+        Text = text,
+        TextSize = 14,
+        TextColor3 = MUTED,
+        TextXAlignment = Enum.TextXAlignment.Left,
+    }, parent)
+end
+
+local function actionButton(parent, text, y)
+    return make("TextButton", {
+        Size = UDim2.fromOffset(72, 22),
+        Position = UDim2.new(1, -72, 0, y),
+        BackgroundColor3 = BUTTON,
+        BorderSizePixel = 0,
+        Font = Enum.Font.SourceSans,
+        Text = text,
+        TextSize = 15,
+        TextColor3 = DARK,
+        AutoButtonColor = false,
+    }, parent)
+end
+
+local function toggleButton(parent)
+    return make("TextButton", {
+        Size = UDim2.fromOffset(56, 22),
+        Position = UDim2.new(1, -56, 0, 0),
+        BackgroundColor3 = FIELD,
+        BorderSizePixel = 0,
+        Font = Enum.Font.SourceSans,
+        Text = "Off",
+        TextSize = 15,
+        TextColor3 = TEXT,
+        AutoButtonColor = false,
+    }, parent)
+end
+
+local function block(parent, height, order)
+    return make("Frame", {
+        Size = UDim2.new(1, 0, 0, height),
+        BackgroundTransparency = 1,
+        LayoutOrder = order,
+    }, parent)
+end
+
+local function quantityFromX(x)
+    local width = quantitySlider.AbsoluteSize.X
+    if width <= 0 then
+        return quantity
+    end
+    local alpha = math.clamp((x - quantitySlider.AbsolutePosition.X) / width, 0, 1)
+    local span = QUANTITY_MAX - QUANTITY_MIN
+    return math.clamp(math.floor(alpha * span + QUANTITY_MIN + 0.5), QUANTITY_MIN, QUANTITY_MAX)
+end
+
+local function requireStarted()
+    if started then
+        return true
+    end
+    setStatus("Off")
+    return false
+end
+
+local function build(parent)
+    root = make("Frame", {
+        Name = "TreeCutterRoot",
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+    }, parent)
+
+    local scroll = make("ScrollingFrame", {
+        Size = UDim2.new(1, -16, 1, -16),
+        Position = UDim2.fromOffset(8, 8),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        ScrollBarThickness = 3,
+        ScrollBarImageColor3 = Color3.fromRGB(70, 70, 70),
+        CanvasSize = UDim2.new(),
+        AutomaticCanvasSize = Enum.AutomaticSize.Y,
+        ScrollingDirection = Enum.ScrollingDirection.Y,
+    }, root)
+    local list = make("Frame", {
+        Size = UDim2.new(1, -8, 0, 0),
+        BackgroundTransparency = 1,
+        AutomaticSize = Enum.AutomaticSize.Y,
+    }, scroll)
+    make("UIListLayout", {
+        FillDirection = Enum.FillDirection.Vertical,
+        SortOrder = Enum.SortOrder.LayoutOrder,
+        Padding = UDim.new(0, 8),
+    }, list)
+
+    local treeBlock = block(list, 42, 1)
+    fieldLabel(treeBlock, "Target tree", 0)
+    treeBtn = make("TextButton", {
+        Size = UDim2.new(1, 0, 0, 22),
+        Position = UDim2.fromOffset(0, 20),
+        BackgroundColor3 = FIELD,
+        BorderSizePixel = 0,
+        Text = "",
+        AutoButtonColor = false,
+    }, treeBlock)
+    treeCaption = make("TextLabel", {
+        Size = UDim2.new(1, -22, 1, 0),
+        Position = UDim2.fromOffset(6, 0),
+        BackgroundTransparency = 1,
+        Font = Enum.Font.SourceSans,
+        Text = "Select",
+        TextSize = 15,
+        TextColor3 = TEXT,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+    }, treeBtn)
+    make("TextLabel", {
+        Size = UDim2.fromOffset(16, 22),
+        Position = UDim2.new(1, -16, 0, 0),
+        BackgroundTransparency = 1,
+        Font = Enum.Font.SourceSans,
+        Text = "v",
+        TextSize = 14,
+        TextColor3 = MUTED,
+    }, treeBtn)
+
+    local quantityBlock = block(list, 36, 2)
+    quantityLabel = fieldLabel(quantityBlock, "Quantity  " .. tostring(quantity), 0)
+    quantitySlider = make("TextButton", {
+        Size = UDim2.new(1, 0, 0, 14),
+        Position = UDim2.fromOffset(0, 20),
+        BackgroundColor3 = TRACK,
+        BorderSizePixel = 0,
+        Text = "",
+        AutoButtonColor = false,
+    }, quantityBlock)
+    quantityFill = make("Frame", {
+        Size = UDim2.new((quantity - QUANTITY_MIN) / (QUANTITY_MAX - QUANTITY_MIN), 0, 1, 0),
+        BackgroundColor3 = BUTTON,
+        BorderSizePixel = 0,
+    }, quantitySlider)
+
+    local function labeledAction(caption, order, idleText)
+        local row = block(list, 22, order)
+        fieldLabel(row, caption, 3).Size = UDim2.new(1, -80, 0, 16)
+        return actionButton(row, idleText, 0)
+    end
+
+    getBtn = labeledAction("Get tree", 3, "Start")
+    chopBtn = labeledAction("Chop all trees", 4, "Start")
+    tpBtn = labeledAction("TP all logs", 5, "TP")
+    sellBtn = labeledAction("Sell all logs", 6, "Sell")
+
+    local function labeledToggle(caption, order)
+        local row = block(list, 22, order)
+        fieldLabel(row, caption, 3).Size = UDim2.new(1, -64, 0, 16)
+        return toggleButton(row)
+    end
+
+    clickBtn = labeledToggle("Click to sell", 7)
+    cutterBtn = labeledToggle("1x1 cutter", 8)
+    hoverBtn = labeledToggle("Hover value", 9)
+
+    local statusBlock = block(list, 16, 10)
+    statusLabel = make("TextLabel", {
+        Size = UDim2.new(1, 0, 1, 0),
+        BackgroundTransparency = 1,
+        Font = Enum.Font.SourceSans,
+        Text = statusText,
+        TextSize = 14,
+        TextColor3 = MUTED,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+    }, statusBlock)
+
+    treeBtn.MouseButton1Click:Connect(function()
+        if menuOpen then
+            closeMenu()
+        else
+            rescan(true)
+            openMenu()
+        end
+    end)
+
+    quantitySlider.InputBegan:Connect(function(input)
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1 then
+            return
+        end
+        closeMenu()
+        quantity = quantityFromX(input.Position.X)
+        paintQuantity()
+        local dragging = true
+        local moveConn
+        local endConn
+        moveConn = UserInputService.InputChanged:Connect(function(changed)
+            if dragging and changed.UserInputType == Enum.UserInputType.MouseMovement then
+                quantity = quantityFromX(changed.Position.X)
+                paintQuantity()
+            end
+        end)
+        endConn = UserInputService.InputEnded:Connect(function(ended)
+            if ended.UserInputType ~= Enum.UserInputType.MouseButton1 then
+                return
+            end
+            dragging = false
+            moveConn:Disconnect()
+            endConn:Disconnect()
+            saveConfig()
+        end)
+    end)
+
+    getBtn.MouseButton1Click:Connect(function()
+        closeMenu()
+        if not requireStarted() then
+            return
+        end
+        if chopSession then
+            chopSession = false
+            chopping = false
+            cleanupChop()
+            paintAction(getBtn, false, "Start", "Stop")
+            if not chopLogs and not teleporting then
+                setStatus("Idle")
+            end
+            return
+        end
+        if not treeReady(selectedTree) then
+            setStatus("No trees")
+            return
+        end
+        chopSession = true
+        paintAction(getBtn, true, "Start", "Stop")
+        local token = session
+        task.spawn(function()
+            local remaining = quantity
+            while chopSession and alive(token) and remaining > 0 do
+                remaining = remaining - 1
+                local className = selectedTree
+                if not treeReady(className) then
+                    setStatus("No trees")
+                    break
+                end
+                chopTree(className, token)
+            end
+            if token == session then
+                chopSession = false
+                paintAction(getBtn, false, "Start", "Stop")
+                if started then
+                    setStatus("Idle")
+                end
+            end
+        end)
+    end)
+
+    chopBtn.MouseButton1Click:Connect(function()
+        closeMenu()
+        if not requireStarted() then
+            return
+        end
+        if chopLogs then
+            chopLogs = false
+            paintAction(chopBtn, false, "Start", "Stop")
+            if not chopSession and not teleporting then
+                setStatus("Idle")
+            end
+            return
+        end
+        paintAction(chopBtn, true, "Start", "Stop")
+        local token = session
+        task.spawn(function()
+            chopOwnedLogs(token)
+            if token == session then
+                paintAction(chopBtn, false, "Start", "Stop")
+                if started and not chopSession then
+                    setStatus("Idle")
+                end
+            end
+        end)
+    end)
+
+    local function moveLogs(singleSection, busyText)
+        closeMenu()
+        if not requireStarted() then
+            return
+        end
+        if teleporting or chopping or chopLogs or chopSession then
+            setStatus("Busy")
+            return
+        end
+        local parts = ownedInnerWood(singleSection)
+        if #parts == 0 then
+            setStatus(singleSection and "No sections" or "No logs")
+            return
+        end
+        local token = session
+        local rootPart = currentRoot()
+        moveMode = singleSection and "sell" or "tp"
+        teleporting = true
+        setStatus(busyText)
+        paintAll()
+        task.spawn(function()
+            teleportMany(parts, function()
+                if singleSection then
+                    return CFrame.new(SELL_POSITION)
+                end
+                local now = currentRoot() or rootPart
+                if now then
+                    return now.CFrame * CFrame.new(0, 0, -LOG_DROP)
+                end
+                return CFrame.new(SELL_POSITION)
+            end, token)
+            if token ~= session then
+                return
+            end
+            moveMode = nil
+            if started then
+                setStatus("Idle")
+                paintAll()
+            end
+        end)
+    end
+
+    tpBtn.MouseButton1Click:Connect(function()
+        moveLogs(false, "Teleporting")
+    end)
+    sellBtn.MouseButton1Click:Connect(function()
+        moveLogs(true, "Selling")
+    end)
+
+    clickBtn.MouseButton1Click:Connect(function()
+        closeMenu()
+        clickToSell = not clickToSell
+        paintToggle(clickBtn, clickToSell)
+        saveConfig()
+        if started then
+            if clickToSell then
+                enableSell()
+            else
+                disableSell()
+            end
+        end
+    end)
+    cutterBtn.MouseButton1Click:Connect(function()
+        closeMenu()
+        cutterOn = not cutterOn
+        paintToggle(cutterBtn, cutterOn)
+        saveConfig()
+        if started then
+            if cutterOn then
+                enableCutter()
+            else
+                disableCutter()
+            end
+        end
+    end)
+    hoverBtn.MouseButton1Click:Connect(function()
+        closeMenu()
+        hoverOn = not hoverOn
+        paintToggle(hoverBtn, hoverOn)
+        saveConfig()
+        if started then
+            if hoverOn then
+                enableHover()
+            else
+                disableHover()
+            end
+        end
+    end)
+end
+
+function api.start()
+    if started then
+        return
+    end
+    started = true
+    session = session + 1
+    rescan(true)
+    watchTrees()
+    silenceSounds()
+    applyLiveToggles()
+    setStatus("Idle")
+    paintAll()
+end
+
+function api.stop()
+    started = false
+    session = session + 1
+    chopSession = false
+    chopLogs = false
+    teleporting = false
+    moveMode = nil
+    cleanupChop()
+    unwatch()
+    clearBucket(soundConns)
+    disableSell()
+    disableCutter()
+    disableHover()
+    closeMenu()
+    setStatus("Off")
+    paintAll()
+end
+
+function api.mount(parent)
+    if mounted then
+        api.unmount()
+    end
+    build(parent)
+    mounted = true
+    rescan(true)
+    paintAll()
+end
+
+function api.unmount()
+    mounted = false
+    closeMenu()
+    clearBucket(guiConns)
+    if root then
+        root:Destroy()
+        root = nil
+    end
+    treeBtn = nil
+    treeCaption = nil
+    quantityLabel = nil
+    quantityFill = nil
+    quantitySlider = nil
+    getBtn = nil
+    chopBtn = nil
+    tpBtn = nil
+    sellBtn = nil
+    clickBtn = nil
+    cutterBtn = nil
+    hoverBtn = nil
+    statusLabel = nil
+end
+
+return api
