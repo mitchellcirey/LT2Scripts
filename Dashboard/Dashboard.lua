@@ -252,7 +252,7 @@ make("TextLabel", {
     Position = UDim2.fromOffset(12, 0),
     BackgroundTransparency = 1,
     Font = Enum.Font.SourceSans,
-    Text = "Jell",
+    Text = "Jell's Dashboard",
     TextSize = 16,
     TextColor3 = TEXT,
     TextXAlignment = Enum.TextXAlignment.Left,
