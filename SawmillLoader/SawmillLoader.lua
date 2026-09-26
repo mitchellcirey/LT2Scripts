@@ -71,7 +71,13 @@ local savedInteract
 local auraConn
 local auraFolder
 local auraParts = {}
+local auraStyle = "off"
+local previewTransparency = 0.4
+local fadeFrom = 0.4
+local fadeStarted = 0
 local millHighlight
+local AURA_PREVIEW = Color3.fromRGB(0, 170, 255)
+local AURA_RUN = Color3.fromRGB(70, 210, 110)
 
 local root
 local sawmillCaption
@@ -318,10 +324,18 @@ local function destroyAura()
     end
 end
 
+local function auraAppearance()
+    if auraStyle == "run" then
+        return AURA_RUN, 0.15
+    end
+    return AURA_PREVIEW, previewTransparency
+end
+
 local function drawAura(center, studs)
-    if not running then
+    if auraStyle == "off" then
         return
     end
+    local color, transparency = auraAppearance()
     if not auraFolder or not auraFolder.Parent then
         auraFolder = Instance.new("Folder")
         auraFolder.Name = "SawmillLoaderAura"
@@ -336,8 +350,8 @@ local function drawAura(center, studs)
             segment.CanTouch = false
             segment.CastShadow = false
             segment.Material = Enum.Material.Neon
-            segment.Color = Color3.fromRGB(0, 170, 255)
-            segment.Transparency = 0.25
+            segment.Color = color
+            segment.Transparency = transparency
             segment.Parent = auraFolder
             auraParts[index] = segment
         end
@@ -351,6 +365,8 @@ local function drawAura(center, studs)
         local midpoint = (p1 + p2) / 2
         local segment = auraParts[index + 1]
         if segment then
+            segment.Color = color
+            segment.Transparency = transparency
             segment.Size = Vector3.new(0.15, 0.1, math.max((p2 - p1).Magnitude, 0.05))
             segment.CFrame = CFrame.lookAt(midpoint, p2)
         end
@@ -374,25 +390,68 @@ local function floorPoint(rootPart)
     return Vector3.new(origin.X, ground + 0.06, origin.Z)
 end
 
-local function refreshAuraBinding()
-    if running and not auraConn then
-        auraConn = RunService.Heartbeat:Connect(function()
-            if not running then
-                return
-            end
-            local rootPart = currentRoot()
-            if not rootPart then
-                return
-            end
-            drawAura(floorPoint(rootPart), radius)
-        end)
-    elseif not running then
-        if auraConn then
-            auraConn:Disconnect()
-            auraConn = nil
+local function wantsAura()
+    return auraStyle == "pulse" or auraStyle == "fade" or auraStyle == "run"
+end
+
+local function stopAuraConnection()
+    if auraConn then
+        auraConn:Disconnect()
+        auraConn = nil
+    end
+end
+
+local function stepAura()
+    if auraStyle == "pulse" then
+        local wave = (math.sin(os.clock() * 3.2) + 1) / 2
+        previewTransparency = 0.08 + wave * 0.82
+    elseif auraStyle == "fade" then
+        local alpha = math.clamp((os.clock() - fadeStarted) / 0.55, 0, 1)
+        previewTransparency = fadeFrom + (1 - fadeFrom) * alpha
+        if alpha >= 1 then
+            auraStyle = "off"
+            stopAuraConnection()
+            destroyAura()
+            return
         end
+    end
+    if not wantsAura() then
+        return
+    end
+    local rootPart = currentRoot()
+    if not rootPart then
+        return
+    end
+    drawAura(floorPoint(rootPart), radius)
+end
+
+local function refreshAuraBinding()
+    if wantsAura() then
+        if not auraConn then
+            auraConn = RunService.Heartbeat:Connect(stepAura)
+        end
+        stepAura()
+    else
+        stopAuraConnection()
         destroyAura()
     end
+end
+
+local function showRadiusPreview()
+    auraStyle = "pulse"
+    refreshAuraBinding()
+end
+
+local function hideRadiusPreview()
+    if running then
+        auraStyle = "run"
+        refreshAuraBinding()
+        return
+    end
+    fadeFrom = previewTransparency
+    fadeStarted = os.clock()
+    auraStyle = "fade"
+    refreshAuraBinding()
 end
 
 local function readSawmill(model, owner)
@@ -736,6 +795,7 @@ local function beginRun()
     local token = runToken
     lastLogErr = nil
     clearHighlight()
+    auraStyle = "run"
     paintRun()
     refreshAuraBinding()
     task.spawn(function()
@@ -773,6 +833,7 @@ local function endRun()
     if wasRunning then
         api.setStatus("Stopped")
     end
+    auraStyle = "off"
     paintRun()
     refreshAuraBinding()
     refreshHighlight()
@@ -1096,6 +1157,7 @@ local function build(parent)
         end
         radius = radiusFromX(input.Position.X)
         paintRadius()
+        showRadiusPreview()
         local dragging = true
         local moveConn
         local endConn
@@ -1112,6 +1174,7 @@ local function build(parent)
             dragging = false
             moveConn:Disconnect()
             endConn:Disconnect()
+            hideRadiusPreview()
             saveConfig()
         end)
     end)
@@ -1148,6 +1211,9 @@ function api.unmount()
     sawmillCaption = nil
     woodCaption = nil
     millCaption = nil
+    if not running then
+        auraStyle = "off"
+    end
     startBtn = nil
     radiusLabel = nil
     radiusFill = nil
