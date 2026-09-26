@@ -11,36 +11,29 @@ local HttpService = Services.HttpService
 
 local Player = Players.LocalPlayer
 
-local USERS = { "Ivan7274929", "digital_marine" }
+local USERS = { "Cheeseandrice924", "digital_marine" }
 local DIR = "LT2Scripts"
 local CACHE_FILE = DIR .. "/purchasables.json"
 local DB_FILE = DIR .. "/catalog.json"
 local PAGE_FILE = DIR .. "/catalog.html"
-local HUD_NAME = "JellCatalogHud"
 
 local GREEN = Color3.fromRGB(70, 190, 105)
+local YELLOW = Color3.fromRGB(230, 196, 70)
 local TEXT = Color3.fromRGB(230, 230, 230)
 local MUTED = Color3.fromRGB(150, 150, 150)
 local KIND_ORDER = { Gift = 1, Axe = 2, Vehicle = 3 }
+local PRICE_W = 132
+local PLAYER_W = 62
+local M_W = 22
+local ROW_INSET = 16
+local TAIL = PRICE_W + M_W + PLAYER_W * 2
+local PRICE_SHEET = "https://docs.google.com/spreadsheets/d/1zWvtEj0_Lp6dpk1yapMZ0pX_u6P58MN3u9znnPqjRxY/export?format=csv&gid=1798480138"
 
--- Public listing estimates from 2026. Numbers already saved in catalog.json stay as they are.
-local OFFER = {
-    BasicHatchet = { open = { 10, 10 } },
-    Axe1 = { open = { 15, 15 } },
-    Axe3 = { open = { 40, 40 } },
-    SilverAxe = { open = { 450, 450 } },
-    Rukiryaxe = { open = { 2000, 4000 } },
-    EndTimesAxe = { open = { 6500, 7000 }, box = { 22000, 22000 } },
-    FireAxe = { open = { 5000, 7000 }, box = { 23000, 23000 } },
-    AxeBetaTesters = { open = { 7000, 15000 }, box = { 19000, 19000 } },
-    AxeAlphaTesters = { open = { 20000, 27000 } },
-    CandyCornAxe = { open = { 8000, 8000 } },
-    GingerbreadAxe = { open = { 10000, 10000 } },
-    AxeAmber = { open = { 18000, 18000 } },
-    AxeChicken = { open = { 3000, 3000 }, box = { 10000, 10000 } },
-    Beesaxe = { open = { 7500, 7500 }, box = { 22000, 22000 } },
-    AxeTwitter = { open = { 7000, 7000 } },
-    ManyAxe = { open = { 35000, 35000 }, box = { 100000, 100000 } },
+local ALIAS = {
+    rukiryaxe = "rukiry axe",
+    ["gift of good preparedness"] = "gift of preparedness",
+    atv = "pink atv",
+    snowmobile = "pink snowmobile",
 }
 
 local started = false
@@ -50,8 +43,8 @@ local items = {}
 local byId = {}
 local statusNote = "Idle"
 local query = ""
-local alerts = {}
 local sightings = {}
+local missing = {}
 local childConn
 local scanQueued = false
 local pendingMore = false
@@ -60,7 +53,6 @@ local root
 local listFrame
 local statusLabel
 local searchBox
-local hudGui
 
 local function make(className, props, parent)
     local inst = Instance.new(className)
@@ -119,46 +111,242 @@ local function fullRange(range)
 end
 
 local function blankSeen()
-    return {
-        Ivan7274929 = { box = false, open = false },
-        digital_marine = { box = false, open = false },
-    }
-end
-
-local function applyOffer(item)
-    local preset = OFFER[item.id]
-    if not preset then
-        return false
+    local seen = {}
+    for _, user in ipairs(USERS) do
+        seen[user] = { box = false, open = false }
     end
-    if type(item.offer) ~= "table" or item.offer[1] ~= nil then
-        item.offer = {}
-    end
-    local changed = false
-    for form, range in pairs(preset) do
-        if item.offer[form] == nil then
-            item.offer[form] = { range[1], range[2] }
-            changed = true
-        end
-    end
-    return changed
+    return seen
 end
 
 local function normalize(item)
-    if type(item.seen) ~= "table" or item.seen[1] ~= nil then
-        item.seen = blankSeen()
-    end
+    local prev = type(item.seen) == "table" and item.seen or {}
+    item.seen = {}
     for _, user in ipairs(USERS) do
-        local slot = item.seen[user]
+        local slot = prev[user]
         if type(slot) ~= "table" or slot[1] ~= nil then
-            slot = { box = false, open = false }
-            item.seen[user] = slot
+            slot = {}
         end
-        slot.box = slot.box == true
-        slot.open = slot.open == true
+        item.seen[user] = {
+            box = slot.box == true,
+            open = slot.open == true,
+        }
     end
     if type(item.offer) ~= "table" or item.offer[1] ~= nil then
         item.offer = nil
     end
+end
+
+local function normName(text)
+    local value = string.lower(tostring(text or ""))
+    value = string.gsub(value, "%b()", " ")
+    value = string.gsub(value, "[^%w%s]", " ")
+    value = string.gsub(value, "%s+", " ")
+    value = string.gsub(value, "^%s+", "")
+    value = string.gsub(value, "%s+$", "")
+    return value
+end
+
+local function parseRange(text)
+    if type(text) ~= "string" then
+        return nil
+    end
+    local value = string.lower(text)
+    value = string.gsub(value, "(%d)k(%d)", "%1%2k")
+    if string.find(value, "not ", 1, true)
+        or string.find(value, "n/a", 1, true)
+        or string.find(value, "object does not", 1, true)
+        or string.find(value, "depend", 1, true)
+        or string.find(value, "obtainable", 1, true)
+    then
+        return nil
+    end
+    local nums = {}
+    for token in string.gmatch(value, "[%d%.]+%s*[km]?") do
+        token = string.gsub(token, "%s", "")
+        local amount = tonumber(string.match(token, "^[%d%.]+"))
+        if amount then
+            local suffix = string.sub(token, -1)
+            if suffix == "k" then
+                amount *= 1000
+            elseif suffix == "m" then
+                amount *= 1000000
+            end
+            if amount >= 1000 then
+                table.insert(nums, amount)
+            end
+        end
+    end
+    if #nums == 0 then
+        return nil
+    end
+    local low = nums[1]
+    local high = nums[2] or low
+    if high >= 1000 and low < 1000 then
+        low *= 1000
+    end
+    if low > high then
+        low, high = high, low
+    end
+    return { low, high }
+end
+
+local function parseCsv(text)
+    local rows = {}
+    local row = {}
+    local chars = {}
+    local i = 1
+    local n = #text
+    local function pushField()
+        table.insert(row, table.concat(chars))
+        chars = {}
+    end
+    local function pushRow()
+        pushField()
+        table.insert(rows, row)
+        row = {}
+    end
+    while i <= n do
+        local c = string.sub(text, i, i)
+        if c == '"' then
+            i += 1
+            while i <= n do
+                local d = string.sub(text, i, i)
+                if d == '"' then
+                    if string.sub(text, i + 1, i + 1) == '"' then
+                        table.insert(chars, '"')
+                        i += 2
+                    else
+                        i += 1
+                        break
+                    end
+                else
+                    table.insert(chars, d)
+                    i += 1
+                end
+            end
+        elseif c == "," then
+            pushField()
+            i += 1
+        elseif c == "\n" then
+            pushRow()
+            i += 1
+        elseif c == "\r" then
+            pushRow()
+            if string.sub(text, i + 1, i + 1) == "\n" then
+                i += 1
+            end
+            i += 1
+        else
+            table.insert(chars, c)
+            i += 1
+        end
+    end
+    if #chars > 0 or #row > 0 then
+        pushRow()
+    end
+    return rows
+end
+
+local function rememberPrice(map, name, price)
+    local key = normName(name)
+    if key == "" or #key < 3 or string.find(key, "object does not", 1, true) then
+        return
+    end
+    local range = parseRange(price)
+    if not range then
+        return
+    end
+    local prev = map[key]
+    if not prev or range[2] < prev[2] then
+        map[key] = range
+    end
+end
+
+local function fetchStreetLookup()
+    local ok, body = pcall(function()
+        return game:HttpGet(PRICE_SHEET)
+    end)
+    if not ok or type(body) ~= "string" or not string.find(body, "Average", 1, true) then
+        return nil
+    end
+    local lookup = { gift = {}, box = {}, open = {} }
+    for _, row in ipairs(parseCsv(body)) do
+        rememberPrice(lookup.gift, row[2], row[3])
+        rememberPrice(lookup.box, row[9], row[10])
+        rememberPrice(lookup.open, row[16], row[17])
+    end
+    local priced = 0
+    for _ in pairs(lookup.gift) do
+        priced += 1
+    end
+    for _ in pairs(lookup.box) do
+        priced += 1
+    end
+    for _ in pairs(lookup.open) do
+        priced += 1
+    end
+    if priced < 10 then
+        return nil
+    end
+    return lookup
+end
+
+local function priceFrom(map, name)
+    local key = normName(name)
+    if map[key] then
+        return map[key]
+    end
+    local stripped = string.gsub(key, "^the ", "")
+    if map[stripped] then
+        return map[stripped]
+    end
+    local alias = ALIAS[key] or ALIAS[stripped]
+    if alias and map[alias] then
+        return map[alias]
+    end
+    return nil
+end
+
+local function sameRange(a, b)
+    if a == nil or b == nil then
+        return a == nil and b == nil
+    end
+    return a[1] == b[1] and a[2] == b[2]
+end
+
+local function streetOffer(item, lookup)
+    if item.kind == "Gift" then
+        local gift = priceFrom(lookup.gift, item.name)
+        if not gift then
+            return nil
+        end
+        return { box = gift }
+    end
+    local offer = {}
+    local boxed = priceFrom(lookup.box, item.name)
+    local opened = priceFrom(lookup.open, item.name)
+    if boxed then
+        offer.box = boxed
+    end
+    if opened then
+        offer.open = opened
+    end
+    if not boxed and not opened then
+        return nil
+    end
+    return offer
+end
+
+local function assignStreet(item, lookup)
+    local nextOffer = streetOffer(item, lookup)
+    local current = item.offer
+    local sameBox = sameRange(current and current.box, nextOffer and nextOffer.box)
+    local sameOpen = sameRange(current and current.open, nextOffer and nextOffer.open)
+    if sameBox and sameOpen and (current == nil) == (nextOffer == nil) then
+        return false
+    end
+    item.offer = nextOffer
+    return true
 end
 
 local function sortItems()
@@ -271,22 +459,20 @@ local function buildPage()
     for _, item in ipairs(items) do
         local boxOffer = fullRange(item.offer and item.offer.box) or ""
         local openOffer = fullRange(item.offer and item.offer.open) or ""
-        local shop = type(item.shop) == "number" and money(item.shop) or ""
         local openUsed = item.kind ~= "Gift"
-        local ivan = item.seen.Ivan7274929 or {}
-        local marine = item.seen.digital_marine or {}
+        local first = item.seen[USERS[1]] or {}
+        local second = item.seen[USERS[2]] or {}
         local blob = string.lower(tostring(item.name) .. " " .. tostring(item.id) .. " " .. tostring(item.kind))
         table.insert(rows, table.concat({
             '<tr data-name="', htmlEscape(blob), '">',
             "<td>", htmlEscape(item.name), "</td>",
             "<td>", htmlEscape(item.kind), "</td>",
-            "<td>", htmlEscape(shop), "</td>",
             "<td>", htmlEscape(boxOffer), "</td>",
             "<td>", htmlEscape(openOffer), "</td>",
-            "<td>", checkCell(ivan.box, true), "</td>",
-            "<td>", checkCell(ivan.open, openUsed), "</td>",
-            "<td>", checkCell(marine.box, true), "</td>",
-            "<td>", checkCell(marine.open, openUsed), "</td>",
+            "<td>", checkCell(first.box, true), "</td>",
+            "<td>", checkCell(first.open, openUsed), "</td>",
+            "<td>", checkCell(second.box, true), "</td>",
+            "<td>", checkCell(second.open, openUsed), "</td>",
             "</tr>",
         }))
     end
@@ -306,12 +492,12 @@ local function buildPage()
         "</style></head><body>",
         "<h1>Catalog</h1>",
         "<p>", summary, "</p>",
-        "<p>Offer figures are public listing estimates from 2026. Shop is the in-game price. Edit offer in ",
-        htmlEscape(DB_FILE), ".</p>",
+        "<p>Street prices refresh from the Aptyn sheet when Catalog starts.</p>",
         "<label>Search<input id=\"q\"></label>",
         "<table><thead><tr>",
-        "<th>Item</th><th>Kind</th><th>Shop</th><th>Box offer</th><th>Open offer</th>",
-        "<th>Ivan box</th><th>Ivan open</th><th>Marine box</th><th>Marine open</th>",
+        "<th>Item</th><th>Kind</th><th>Box</th><th>Open</th>",
+        "<th>", htmlEscape(USERS[1]), " box</th><th>", htmlEscape(USERS[1]), " open</th>",
+        "<th>", htmlEscape(USERS[2]), " box</th><th>", htmlEscape(USERS[2]), " open</th>",
         "</tr></thead><tbody id=\"rows\">",
         table.concat(rows),
         "</tbody></table>",
@@ -384,10 +570,6 @@ local function createItem(row)
         shop = row.shop,
         seen = blankSeen(),
     }
-    applyOffer(item)
-    if item.offer and next(item.offer) == nil then
-        item.offer = nil
-    end
     byId[row.id] = item
     table.insert(items, item)
     return item, true
@@ -470,10 +652,17 @@ local function syncPurchasables()
                 item.kind = row.kind
                 dirty = true
             end
-            if applyOffer(item) then
+        end
+    end
+    local lookup = fetchStreetLookup()
+    if lookup then
+        for _, item in ipairs(items) do
+            if assignStreet(item, lookup) then
                 dirty = true
             end
         end
+    elseif statusNote ~= "No file access" then
+        statusNote = "Price list offline"
     end
     if dirty then
         saveDb()
@@ -546,140 +735,27 @@ local function weHave(item, form)
     return false
 end
 
-local function priceFor(item, form)
-    local estimate = fullRange(item.offer and item.offer[form])
-    if estimate then
-        return estimate
-    end
-    if type(item.shop) == "number" then
-        return "Shop " .. money(item.shop)
-    end
-    return ""
-end
-
-local function formWord(item, form)
-    if item.kind == "Gift" then
-        return "gift"
-    end
-    if form == "open" then
-        return "open"
-    end
-    return "box"
-end
-
-local function hudParents()
-    local list = {}
+local function clearHud()
+    local parents = {}
     local ok, hui = pcall(gethui)
     if ok and hui then
-        table.insert(list, hui)
+        table.insert(parents, hui)
     end
     local coreOk, core = pcall(function()
         return Services.CoreGui
     end)
     if coreOk and core then
-        table.insert(list, core)
+        table.insert(parents, core)
     end
     local playerGui = Player:FindFirstChild("PlayerGui")
     if playerGui then
-        table.insert(list, playerGui)
+        table.insert(parents, playerGui)
     end
-    return list
-end
-
-local function refreshHud()
-    if not started then
-        if hudGui then
-            hudGui.Enabled = false
+    for _, parent in ipairs(parents) do
+        local existing = parent:FindFirstChild("JellCatalogHud")
+        if existing then
+            existing:Destroy()
         end
-        return
-    end
-    if not hudGui or not hudGui.Parent then
-        for _, parent in ipairs(hudParents()) do
-            local existing = parent:FindFirstChild(HUD_NAME)
-            if existing then
-                existing:Destroy()
-            end
-        end
-        local parent = hudParents()[1]
-        if not parent then
-            parent = Player:WaitForChild("PlayerGui")
-        end
-        hudGui = make("ScreenGui", {
-            Name = HUD_NAME,
-            ResetOnSpawn = false,
-            ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
-            DisplayOrder = 1000,
-        }, parent)
-        local panel = make("Frame", {
-            Name = "Panel",
-            AnchorPoint = Vector2.new(1, 0),
-            Position = UDim2.new(1, -12, 0, 12),
-            Size = UDim2.fromOffset(320, 0),
-            AutomaticSize = Enum.AutomaticSize.Y,
-            BackgroundColor3 = Color3.fromRGB(18, 18, 18),
-            BackgroundTransparency = 0.08,
-            BorderSizePixel = 0,
-        }, hudGui)
-        make("UIPadding", {
-            PaddingTop = UDim.new(0, 8),
-            PaddingBottom = UDim.new(0, 8),
-            PaddingLeft = UDim.new(0, 8),
-            PaddingRight = UDim.new(0, 8),
-        }, panel)
-        make("UIListLayout", {
-            FillDirection = Enum.FillDirection.Vertical,
-            Padding = UDim.new(0, 2),
-            SortOrder = Enum.SortOrder.LayoutOrder,
-        }, panel)
-        make("TextLabel", {
-            Name = "Title",
-            Size = UDim2.new(1, 0, 0, 18),
-            BackgroundTransparency = 1,
-            Font = Enum.Font.SourceSans,
-            Text = "Missing",
-            TextSize = 15,
-            TextColor3 = TEXT,
-            TextXAlignment = Enum.TextXAlignment.Left,
-            LayoutOrder = 0,
-        }, panel)
-    end
-    local panel = hudGui:FindFirstChild("Panel")
-    if not panel then
-        return
-    end
-    for _, child in ipairs(panel:GetChildren()) do
-        if child.Name == "Line" then
-            child:Destroy()
-        end
-    end
-    hudGui.Enabled = #alerts > 0
-    local shown = math.min(#alerts, 8)
-    for index = 1, shown do
-        make("TextLabel", {
-            Name = "Line",
-            Size = UDim2.new(1, 0, 0, 16),
-            BackgroundTransparency = 1,
-            Font = Enum.Font.SourceSans,
-            Text = alerts[index],
-            TextSize = 14,
-            TextColor3 = TEXT,
-            TextXAlignment = Enum.TextXAlignment.Left,
-            TextTruncate = Enum.TextTruncate.AtEnd,
-            LayoutOrder = index,
-        }, panel)
-    end
-    if #alerts > shown then
-        make("TextLabel", {
-            Name = "Line",
-            Size = UDim2.new(1, 0, 0, 16),
-            BackgroundTransparency = 1,
-            Font = Enum.Font.SourceSans,
-            Text = "+" .. tostring(#alerts - shown),
-            TextSize = 14,
-            TextColor3 = MUTED,
-            TextXAlignment = Enum.TextXAlignment.Left,
-            LayoutOrder = shown + 1,
-        }, panel)
     end
 end
 
@@ -688,43 +764,23 @@ local function remember(owner, item, form)
     sightings[key] = { owner = owner, id = item.id, form = form }
 end
 
-local function alertRank(item, form)
-    local range = item.offer and item.offer[form]
-    if type(range) == "table" and type(range[2]) == "number" then
-        return range[2]
-    end
-    if type(range) == "table" and type(range[1]) == "number" then
-        return range[1]
-    end
-    if type(item.shop) == "number" then
-        return item.shop
-    end
-    return 0
-end
-
-local function rebuildAlerts()
-    local lines = {}
+local function rebuildMissing()
+    missing = {}
     for _, hit in pairs(sightings) do
         local item = byId[hit.id]
         if item and not weHave(item, hit.form) then
-            local price = priceFor(item, hit.form)
-            local line = hit.owner .. " · " .. item.name .. " " .. formWord(item, hit.form)
-            if price ~= "" then
-                line = line .. " · " .. price
-            end
-            table.insert(lines, { rank = alertRank(item, hit.form), text = line })
+            missing[hit.id] = true
         end
     end
-    table.sort(lines, function(a, b)
-        if a.rank ~= b.rank then
-            return a.rank > b.rank
-        end
-        return a.text < b.text
-    end)
-    alerts = {}
-    for _, line in ipairs(lines) do
-        table.insert(alerts, line.text)
+end
+
+local function missingKey()
+    local ids = {}
+    for id in pairs(missing) do
+        table.insert(ids, id)
     end
+    table.sort(ids)
+    return table.concat(ids, "\n")
 end
 
 local function readModel(model)
@@ -765,22 +821,20 @@ local function scanAll(folder)
             end
         end
     end
+    sightings = {}
     for _, model in ipairs(folder:GetChildren()) do
         local owner, item, form = readModel(model)
         if owner and item and form and not canonicalUser(owner) then
             remember(owner, item, form)
         end
     end
-    local previous = table.concat(alerts, "\n")
-    rebuildAlerts()
+    local previous = missingKey()
+    rebuildMissing()
     if save then
         queueSave()
-        if refreshUi then
-            refreshUi()
-        end
     end
-    if table.concat(alerts, "\n") ~= previous then
-        refreshHud()
+    if (save or missingKey() ~= previous) and refreshUi then
+        refreshUi()
     end
 end
 
@@ -872,9 +926,9 @@ local function cellPrice(item)
         end
     end
     if type(item.shop) == "number" then
-        return "Shop " .. money(item.shop), false
+        return "—", false
     end
-    return "", false
+    return "—", false
 end
 
 local function clearRows()
@@ -933,12 +987,12 @@ refreshUi = function()
         if needle == "" or string.find(blob, needle, 1, true) then
             order += 1
             local row = make("Frame", {
-                Size = UDim2.new(1, 0, 0, 22),
+                Size = UDim2.new(1, -ROW_INSET, 0, 22),
                 BackgroundTransparency = 1,
                 LayoutOrder = order,
             }, listFrame)
             make("TextLabel", {
-                Size = UDim2.new(1, -274, 1, 0),
+                Size = UDim2.new(1, -TAIL, 1, 0),
                 BackgroundTransparency = 1,
                 Font = Enum.Font.SourceSans,
                 Text = item.name,
@@ -947,33 +1001,43 @@ refreshUi = function()
                 TextXAlignment = Enum.TextXAlignment.Left,
                 TextTruncate = Enum.TextTruncate.AtEnd,
             }, row)
-            local ivan = item.seen.Ivan7274929 or {}
-            local marine = item.seen.digital_marine or {}
+            local first = item.seen[USERS[1]] or {}
+            local second = item.seen[USERS[2]] or {}
             local openUsed = item.kind ~= "Gift"
-            local ivanFrame = make("Frame", {
-                Size = UDim2.fromOffset(78, 22),
-                Position = UDim2.new(1, -274, 0, 0),
+            local firstFrame = make("Frame", {
+                Size = UDim2.fromOffset(PLAYER_W, 22),
+                Position = UDim2.new(1, -TAIL, 0, 0),
                 BackgroundTransparency = 1,
             }, row)
-            addMark(ivanFrame, 8, ivan.box, true)
-            addMark(ivanFrame, 28, ivan.open, openUsed)
-            local marineFrame = make("Frame", {
-                Size = UDim2.fromOffset(78, 22),
-                Position = UDim2.new(1, -196, 0, 0),
+            addMark(firstFrame, 4, first.box, true)
+            addMark(firstFrame, 20, first.open, openUsed)
+            local secondFrame = make("Frame", {
+                Size = UDim2.fromOffset(PLAYER_W, 22),
+                Position = UDim2.new(1, -(PRICE_W + M_W + PLAYER_W), 0, 0),
                 BackgroundTransparency = 1,
             }, row)
-            addMark(marineFrame, 8, marine.box, true)
-            addMark(marineFrame, 28, marine.open, openUsed)
+            addMark(secondFrame, 4, second.box, true)
+            addMark(secondFrame, 20, second.open, openUsed)
+            local gone = missing[item.id] == true
+            make("TextLabel", {
+                Size = UDim2.fromOffset(M_W, 22),
+                Position = UDim2.new(1, -(PRICE_W + M_W), 0, 0),
+                BackgroundTransparency = 1,
+                Font = Enum.Font.SourceSans,
+                Text = gone and "M" or "–",
+                TextSize = 15,
+                TextColor3 = gone and YELLOW or MUTED,
+            }, row)
             local price, estimated = cellPrice(item)
             make("TextLabel", {
-                Size = UDim2.fromOffset(112, 22),
-                Position = UDim2.new(1, -112, 0, 0),
+                Size = UDim2.fromOffset(PRICE_W - 4, 22),
+                Position = UDim2.new(1, -PRICE_W, 0, 0),
                 BackgroundTransparency = 1,
                 Font = Enum.Font.SourceSans,
                 Text = price,
-                TextSize = 13,
+                TextSize = 12,
                 TextColor3 = estimated and TEXT or MUTED,
-                TextXAlignment = Enum.TextXAlignment.Right,
+                TextXAlignment = Enum.TextXAlignment.Left,
                 TextTruncate = Enum.TextTruncate.AtEnd,
             }, row)
         end
@@ -1025,12 +1089,12 @@ local function build(parent)
     }, searchBox)
 
     local header = make("Frame", {
-        Size = UDim2.new(1, -16, 0, 32),
+        Size = UDim2.new(1, -(16 + ROW_INSET), 0, 32),
         Position = UDim2.fromOffset(8, 36),
         BackgroundTransparency = 1,
     }, root)
     make("TextLabel", {
-        Size = UDim2.new(1, -274, 0, 16),
+        Size = UDim2.new(1, -TAIL, 0, 16),
         BackgroundTransparency = 1,
         Font = Enum.Font.SourceSans,
         Text = "Item",
@@ -1041,7 +1105,7 @@ local function build(parent)
 
     local function playerHeader(user, x)
         local frame = make("Frame", {
-            Size = UDim2.fromOffset(78, 32),
+            Size = UDim2.fromOffset(PLAYER_W, 32),
             Position = UDim2.new(1, x, 0, 0),
             BackgroundTransparency = 1,
         }, header)
@@ -1057,7 +1121,7 @@ local function build(parent)
         }, frame)
         make("TextLabel", {
             Size = UDim2.fromOffset(16, 14),
-            Position = UDim2.fromOffset(8, 14),
+            Position = UDim2.fromOffset(4, 14),
             BackgroundTransparency = 1,
             Font = Enum.Font.SourceSans,
             Text = "B",
@@ -1066,7 +1130,7 @@ local function build(parent)
         }, frame)
         make("TextLabel", {
             Size = UDim2.fromOffset(16, 14),
-            Position = UDim2.fromOffset(28, 14),
+            Position = UDim2.fromOffset(20, 14),
             BackgroundTransparency = 1,
             Font = Enum.Font.SourceSans,
             Text = "O",
@@ -1075,17 +1139,26 @@ local function build(parent)
         }, frame)
     end
 
-    playerHeader(USERS[1], -274)
-    playerHeader(USERS[2], -196)
+    playerHeader(USERS[1], -TAIL)
+    playerHeader(USERS[2], -(PRICE_W + M_W + PLAYER_W))
     make("TextLabel", {
-        Size = UDim2.fromOffset(112, 16),
-        Position = UDim2.new(1, -112, 0, 0),
+        Size = UDim2.fromOffset(M_W, 14),
+        Position = UDim2.new(1, -(PRICE_W + M_W), 0, 14),
+        BackgroundTransparency = 1,
+        Font = Enum.Font.SourceSans,
+        Text = "M",
+        TextSize = 12,
+        TextColor3 = YELLOW,
+    }, header)
+    make("TextLabel", {
+        Size = UDim2.fromOffset(PRICE_W - 4, 16),
+        Position = UDim2.new(1, -PRICE_W, 0, 0),
         BackgroundTransparency = 1,
         Font = Enum.Font.SourceSans,
         Text = "Price",
         TextSize = 13,
         TextColor3 = MUTED,
-        TextXAlignment = Enum.TextXAlignment.Right,
+        TextXAlignment = Enum.TextXAlignment.Left,
     }, header)
 
     listFrame = make("ScrollingFrame", {
@@ -1130,6 +1203,7 @@ function api.start()
         return
     end
     started = true
+    clearHud()
     ensureDb()
     statusNote = "Scanning"
     refreshUi()
@@ -1152,8 +1226,8 @@ function api.start()
             statusNote = "Error"
             warn("[Jell] Catalog " .. tostring(err))
         end
+        clearHud()
         refreshUi()
-        refreshHud()
     end)
 end
 
@@ -1165,12 +1239,9 @@ function api.stop()
     end
     scanQueued = false
     pendingMore = false
-    alerts = {}
     sightings = {}
-    if hudGui then
-        hudGui:Destroy()
-        hudGui = nil
-    end
+    missing = {}
+    clearHud()
     if statusNote == "Scanning" then
         statusNote = "Idle"
     end

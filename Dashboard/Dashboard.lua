@@ -675,7 +675,7 @@ end
 local function powerIcon(parent)
     local btn = make("TextButton", {
         Size = UDim2.fromOffset(22, 22),
-        Position = UDim2.new(1, -46, 0.5, -11),
+        Position = UDim2.new(1, -22, 0.5, -11),
         BackgroundTransparency = 1,
         Text = "",
         AutoButtonColor = false,
@@ -718,7 +718,7 @@ for index, entry in ipairs(SCRIPTS) do
     }, scriptList)
 
     local nameBtn = make("TextButton", {
-        Size = UDim2.new(1, -48, 1, 0),
+        Size = UDim2.new(1, -24, 1, 0),
         BackgroundTransparency = 1,
         Font = Enum.Font.SourceSans,
         Text = entry.name,
@@ -733,16 +733,6 @@ for index, entry in ipairs(SCRIPTS) do
     }, nameBtn)
 
     local powerBtn, gap = powerIcon(row)
-    local arrowBtn = make("TextButton", {
-        Size = UDim2.fromOffset(22, 22),
-        Position = UDim2.new(1, -22, 0.5, -11),
-        BackgroundTransparency = 1,
-        Font = Enum.Font.SourceSans,
-        Text = "→",
-        TextSize = 16,
-        TextColor3 = Color3.fromRGB(210, 210, 210),
-        AutoButtonColor = false,
-    }, row)
 
     states[entry.id] = {
         row = row,
@@ -756,13 +746,10 @@ for index, entry in ipairs(SCRIPTS) do
     }
 
     nameBtn.MouseButton1Click:Connect(function()
-        task.spawn(ensureLoaded, entry)
+        task.spawn(openScript, entry)
     end)
     powerBtn.MouseButton1Click:Connect(function()
         task.spawn(togglePower, entry)
-    end)
-    arrowBtn.MouseButton1Click:Connect(function()
-        task.spawn(openScript, entry)
     end)
 end
 
