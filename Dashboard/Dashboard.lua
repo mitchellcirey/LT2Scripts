@@ -16,6 +16,11 @@ local BASE = "https://raw.githubusercontent.com/mitchellcirey/LT2Scripts/main/"
 
 local SCRIPTS = {
     {
+        id = "Catalog",
+        name = "Catalog",
+        url = BASE .. "Catalog/Catalog.lua",
+    },
+    {
         id = "Duper",
         name = "Duper",
         url = BASE .. "Duper/Duper.lua",
@@ -304,6 +309,62 @@ local scriptHost = make("Frame", {
     Visible = false,
 }, content)
 
+local welcomePage = make("Frame", {
+    Name = "Welcome",
+    Size = UDim2.new(1, -24, 1, -24),
+    Position = UDim2.fromOffset(12, 12),
+    BackgroundTransparency = 1,
+}, content)
+
+make("TextLabel", {
+    Size = UDim2.new(1, 0, 0, 28),
+    BackgroundTransparency = 1,
+    Font = Enum.Font.SourceSans,
+    Text = "Welcome",
+    TextSize = 22,
+    TextColor3 = TEXT,
+    TextXAlignment = Enum.TextXAlignment.Left,
+}, welcomePage)
+
+make("TextLabel", {
+    Size = UDim2.new(1, 0, 0, 22),
+    Position = UDim2.fromOffset(0, 36),
+    BackgroundTransparency = 1,
+    Font = Enum.Font.SourceSans,
+    Text = "Jell for Lumber Tycoon 2.",
+    TextSize = 16,
+    TextColor3 = Color3.fromRGB(210, 210, 210),
+    TextXAlignment = Enum.TextXAlignment.Left,
+}, welcomePage)
+
+make("TextLabel", {
+    Size = UDim2.new(1, 0, 0, 22),
+    Position = UDim2.fromOffset(0, 78),
+    BackgroundTransparency = 1,
+    Font = Enum.Font.SourceSans,
+    Text = "GitHub",
+    TextSize = 15,
+    TextColor3 = Color3.fromRGB(210, 210, 210),
+    TextXAlignment = Enum.TextXAlignment.Left,
+}, welcomePage)
+
+local githubBox = make("TextBox", {
+    Size = UDim2.new(1, 0, 0, 22),
+    Position = UDim2.fromOffset(0, 104),
+    BackgroundColor3 = Color3.fromRGB(58, 58, 58),
+    BorderSizePixel = 0,
+    ClearTextOnFocus = false,
+    TextEditable = false,
+    Font = Enum.Font.SourceSans,
+    Text = "https://github.com/mitchellcirey/LT2Scripts",
+    TextSize = 15,
+    TextColor3 = TEXT,
+    TextXAlignment = Enum.TextXAlignment.Left,
+}, welcomePage)
+make("UIPadding", {
+    PaddingLeft = UDim.new(0, 6),
+}, githubBox)
+
 local settingsBtn = make("TextButton", {
     Size = UDim2.new(1, -16, 0, 24),
     Position = UDim2.fromOffset(8, 8),
@@ -518,6 +579,7 @@ end
 local function showSettings()
     settingsPage.Visible = true
     scriptHost.Visible = false
+    welcomePage.Visible = false
     shownId = nil
     settingsBtn.Font = Enum.Font.SourceSansBold
     settingsBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -540,6 +602,7 @@ local function openScript(entry)
         end
         settingsPage.Visible = false
         scriptHost.Visible = true
+        welcomePage.Visible = false
         settingsBtn.Font = Enum.Font.SourceSans
         settingsBtn.TextColor3 = Color3.fromRGB(210, 210, 210)
         if shownId ~= entry.id or not state.mounted then
@@ -571,6 +634,10 @@ local function openScript(entry)
         state.mounted = false
         if shownId == entry.id then
             shownId = nil
+        end
+        if shownId == nil and not settingsPage.Visible then
+            welcomePage.Visible = true
+            scriptHost.Visible = false
         end
         warn("[Jell] " .. entry.name .. " failed to open: " .. tostring(err))
     end
