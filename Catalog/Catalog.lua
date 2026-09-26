@@ -788,15 +788,67 @@ local function rebuildMissing()
     for _, hit in pairs(sightings) do
         local item = byId[hit.id]
         if item and not weHave(item, hit.form) then
-            missing[hit.id] = true
+            local holders = missing[hit.id]
+            if not holders then
+                holders = {}
+                missing[hit.id] = holders
+            end
+            local forms = holders[hit.owner]
+            if not forms then
+                forms = {}
+                holders[hit.owner] = forms
+            end
+            forms[hit.form] = true
         end
     end
 end
 
+local function holderText(item)
+    local holders = missing[item.id]
+    if type(holders) ~= "table" then
+        return ""
+    end
+    local lines = {}
+    for owner, forms in pairs(holders) do
+        if item.kind == "Gift" then
+            table.insert(lines, owner)
+        else
+            local parts = {}
+            if forms.box then
+                table.insert(parts, "boxed")
+            end
+            if forms.open then
+                table.insert(parts, "opened")
+            end
+            if #parts == 0 then
+                table.insert(lines, owner)
+            else
+                table.insert(lines, owner .. " " .. table.concat(parts, ", "))
+            end
+        end
+    end
+    table.sort(lines)
+    return table.concat(lines, ", ")
+end
+
 local function missingKey()
     local ids = {}
-    for id in pairs(missing) do
-        table.insert(ids, id)
+    for id, holders in pairs(missing) do
+        local names = {}
+        if type(holders) == "table" then
+            for owner, forms in pairs(holders) do
+                local bits = {}
+                if forms.box then
+                    table.insert(bits, "b")
+                end
+                if forms.open then
+                    table.insert(bits, "o")
+                end
+                table.insert(names, owner .. ":" .. table.concat(bits, ""))
+            end
+        end
+        table.sort(names)
+        table.insert(ids, id .. "=" .. table.concat(names, ","))
     end
     table.sort(ids)
     return table.concat(ids, "\n")
@@ -1049,9 +1101,10 @@ refreshUi = function()
 
     local function addItem(item)
         order += 1
-        local gone = missing[item.id] == true
+        local holders = holderText(item)
+        local gone = holders ~= ""
         local row = make("Frame", {
-            Size = UDim2.new(1, -ROW_INSET, 0, 36),
+            Size = UDim2.new(1, -ROW_INSET, 0, gone and 52 or 36),
             BackgroundTransparency = 1,
             LayoutOrder = order,
         }, listFrame)
@@ -1081,6 +1134,19 @@ refreshUi = function()
         playerMarks(row, 0, SHORT[1], item.seen[USERS[1]] or {}, openUsed)
         playerMarks(row, 124, SHORT[2], item.seen[USERS[2]] or {}, openUsed)
         letter(row, 248, 18, "M", gone and YELLOW or MUTED, 14)
+        if gone then
+            make("TextLabel", {
+                Size = UDim2.new(1, 0, 0, 16),
+                Position = UDim2.fromOffset(0, 34),
+                BackgroundTransparency = 1,
+                Font = Enum.Font.SourceSans,
+                Text = holders,
+                TextSize = 14,
+                TextColor3 = YELLOW,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                TextTruncate = Enum.TextTruncate.AtEnd,
+            }, row)
+        end
     end
 
     local missingRows = {}
