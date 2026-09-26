@@ -23,26 +23,15 @@ local GREEN = Color3.fromRGB(70, 190, 105)
 local AURA_SEGMENTS = 64
 local SELL_POSITION = Vector3.new(426, 10, 443.71)
 
-local treeTypes = {
-    Generic = false,
-    Cherry = false,
-    Birch = true,
-    Oak = true,
-    Walnut = false,
-    Koa = false,
-    Pine = false,
-    Palm = false,
-    Fir = false,
-    Volcano = false,
-    Frost = false,
-    GreenSwampy = false,
-    GoldSwampy = false,
-    SnowGlow = false,
-    CaveCrawler = false,
-    LoneCave = false,
-    Spook = false,
-    Sinister = false,
+local WOOD_TYPES = {
+    "Generic", "Cherry", "Birch", "Oak", "Walnut", "Koa", "Pine", "Palm", "Fir",
+    "Volcano", "Frost", "GreenSwampy", "GoldSwampy", "SnowGlow", "CaveCrawler",
+    "LoneCave", "Spook", "Sinister",
 }
+local woodSet = {}
+for _, name in ipairs(WOOD_TYPES) do
+    woodSet[name] = true
+end
 
 local sawmillProperties = {
     Sawmill = { x = 2.6, y = 2.6, length = 10 },
@@ -53,6 +42,7 @@ local sawmillProperties = {
 
 local sawmillOwner
 local woodOwner
+local selectedWood = "Birch"
 local selectedMillKey
 local selectedModel
 local radius = 10
@@ -81,6 +71,7 @@ local AURA_RUN = Color3.fromRGB(70, 210, 110)
 local root
 local sawmillCaption
 local woodCaption
+local woodTypeCaption
 local millCaption
 local startBtn
 local statusLabel
@@ -196,6 +187,7 @@ local function saveConfig()
     local payload = {
         sawmillOwner = sawmillOwner,
         woodOwner = woodOwner,
+        wood = selectedWood,
         sawmill = selectedMillKey,
     }
     local encodedOk, encoded = pcall(function()
@@ -215,6 +207,9 @@ local function applySaved(data)
     end
     if type(data.woodOwner) == "string" and data.woodOwner ~= "" then
         woodOwner = data.woodOwner
+    end
+    if type(data.wood) == "string" and woodSet[data.wood] then
+        selectedWood = data.wood
     end
     if type(data.sawmill) == "string" and data.sawmill ~= "" then
         selectedMillKey = data.sawmill
@@ -711,7 +706,7 @@ local function moveLogs(player, sawmills, alive)
         end
 
         local treeClass = log:FindFirstChild("TreeClass")
-        if treeClass and not treeTypes[treeClass.Value] then
+        if not treeClass or treeClass.Value ~= selectedWood then
             return
         end
 
@@ -844,6 +839,9 @@ local function paintOwners()
     if woodCaption and woodCaption.Parent then
         woodCaption.Text = ownerLabel(woodOwner)
     end
+    if woodTypeCaption and woodTypeCaption.Parent then
+        woodTypeCaption.Text = selectedWood
+    end
     if millCaption and millCaption.Parent then
         millCaption.Text = millCaptionText()
     end
@@ -948,6 +946,15 @@ local function setOwner(kind, name)
     refreshHighlight()
 end
 
+local function setWood(name)
+    if not woodSet[name] then
+        return
+    end
+    selectedWood = name
+    paintOwners()
+    saveConfig()
+end
+
 local function setMill(entry)
     highlightDismissed = false
     selectedModel = entry.model
@@ -977,7 +984,18 @@ local function openMenu(kind, y)
     end)
 
     local rows = {}
-    if kind == "mill" then
+    if kind == "woodType" then
+        for _, name in ipairs(WOOD_TYPES) do
+            local picked = name
+            table.insert(rows, {
+                text = picked,
+                selected = picked == selectedWood,
+                choose = function()
+                    setWood(picked)
+                end,
+            })
+        end
+    elseif kind == "mill" then
         local owner = findPlayer(sawmillOwner)
         local mills = owner and getPlayerSawmills(owner) or {}
         local labels = millLabels(mills)
@@ -1133,13 +1151,16 @@ local function build(parent)
     fieldLabel("Wood owner", 58)
     local woodBtn
     woodBtn, woodCaption = dropdownButton(76)
-    fieldLabel("Sawmill", 108)
+    fieldLabel("Wood", 108)
+    local woodTypeBtn
+    woodTypeBtn, woodTypeCaption = dropdownButton(126)
+    fieldLabel("Sawmill", 158)
     local millBtn
-    millBtn, millCaption = dropdownButton(126)
+    millBtn, millCaption = dropdownButton(176)
 
     startBtn = make("TextButton", {
         Size = UDim2.new(1, -16, 0, 22),
-        Position = UDim2.fromOffset(8, 158),
+        Position = UDim2.fromOffset(8, 208),
         BackgroundColor3 = GREEN,
         BorderSizePixel = 0,
         Font = Enum.Font.SourceSans,
@@ -1152,7 +1173,7 @@ local function build(parent)
 
     statusLabel = make("TextLabel", {
         Size = UDim2.new(1, -16, 0, 16),
-        Position = UDim2.fromOffset(8, 186),
+        Position = UDim2.fromOffset(8, 236),
         BackgroundTransparency = 1,
         Font = Enum.Font.SourceSans,
         Text = statusText,
@@ -1176,11 +1197,18 @@ local function build(parent)
             openMenu("wood", 76)
         end
     end)
+    woodTypeBtn.MouseButton1Click:Connect(function()
+        if menuKind == "woodType" then
+            closeMenu()
+        else
+            openMenu("woodType", 126)
+        end
+    end)
     millBtn.MouseButton1Click:Connect(function()
         if menuKind == "mill" then
             closeMenu()
         else
-            openMenu("mill", 126)
+            openMenu("mill", 176)
         end
     end)
     startBtn.MouseButton1Click:Connect(function()
@@ -1222,6 +1250,7 @@ function api.unmount()
     end
     sawmillCaption = nil
     woodCaption = nil
+    woodTypeCaption = nil
     millCaption = nil
     if not running then
         auraStyle = "off"
