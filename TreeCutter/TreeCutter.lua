@@ -41,13 +41,14 @@ local SELL_POSITION = Vector3.new(315, 0, 88)
 local PLANK_SELL_CF = CFrame.new(315, 0, 88) * CFrame.Angles(math.rad(90), 0, 0)
 local PLANK_LOCK_TIME = 1
 
-local CUT_FIRE_DELAY = 0.03
+local CUT_FIRE_DELAY = 0
 local CUT_TIMEOUT = 90
 local CUT_MAX_UNITS = 100
 local CUT_DETECT = 8
 local CUT_MIN_LEFTOVER = 1
-local CUT_COLOR = Color3.fromRGB(230, 230, 230)
-local QUEUE_COLOR = Color3.fromRGB(210, 160, 70)
+local CUT_COLOR = Color3.fromRGB(70, 200, 255)
+local QUEUE_COLOR = Color3.fromRGB(255, 150, 20)
+local SELL_COLOR = Color3.fromRGB(80, 255, 120)
 
 local PRIORITY = {
     "Generic", "Cherry", "Birch", "Oak", "Walnut", "Koa", "Pine", "Palm", "Fir",
@@ -1236,6 +1237,18 @@ function F.chopOwnedLogs(token)
     chopLogs = false
 end
 
+function F.makeMark(name, color)
+    local mark = Instance.new("Highlight")
+    mark.Name = name
+    mark.FillColor = color
+    mark.OutlineColor = color
+    mark.FillTransparency = 0.35
+    mark.OutlineTransparency = 0
+    mark.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    mark.Parent = Workspace
+    return mark
+end
+
 function F.clearSellOutline()
     if sellOutline then
         sellOutline:Destroy()
@@ -1250,14 +1263,8 @@ function F.showSellOutline(model)
     end
     F.clearSellOutline()
     sellHover = model
-    sellOutline = Instance.new("SelectionBox")
-    sellOutline.Name = "TreeCutterSell"
+    sellOutline = F.makeMark("TreeCutterSell", SELL_COLOR)
     sellOutline.Adornee = model
-    sellOutline.Color3 = CUT_COLOR
-    sellOutline.SurfaceColor3 = CUT_COLOR
-    sellOutline.LineThickness = 0.08
-    sellOutline.SurfaceTransparency = 0.65
-    sellOutline.Parent = Workspace
 end
 
 function F.ownedPlank(part)
@@ -1444,13 +1451,7 @@ function F.ensureCutterOutline()
     if cutterOutline and cutterOutline.Parent then
         return
     end
-    cutterOutline = Instance.new("SelectionBox")
-    cutterOutline.Name = "TreeCutterOutline"
-    cutterOutline.Color3 = CUT_COLOR
-    cutterOutline.SurfaceColor3 = CUT_COLOR
-    cutterOutline.LineThickness = 0.04
-    cutterOutline.SurfaceTransparency = 0.8
-    cutterOutline.Parent = Workspace
+    cutterOutline = F.makeMark("TreeCutterOutline", CUT_COLOR)
 end
 
 function F.showCutterOutline(model)
@@ -1474,10 +1475,10 @@ function F.rebuildPlanes(section)
         part.CanTouch = false
         part.CanQuery = false
         part.CastShadow = false
-        part.Size = Vector3.new(section.Size.X + 0.08, 0.04, section.Size.Z + 0.08)
+        part.Size = Vector3.new(section.Size.X + 0.4, 0.12, section.Size.Z + 0.4)
         part.Color = CUT_COLOR
         part.Material = Enum.Material.Neon
-        part.Transparency = 0.2
+        part.Transparency = 0.05
         part.CFrame = section.CFrame * localCF
         part.Parent = Workspace
         table.insert(cutterPlanes, {
@@ -1492,14 +1493,8 @@ function F.markQueued(plank)
     if not plank or cutterMarks[plank] then
         return
     end
-    local box = Instance.new("SelectionBox")
-    box.Name = "TreeCutterQueue"
+    local box = F.makeMark("TreeCutterQueue", QUEUE_COLOR)
     box.Adornee = plank
-    box.Color3 = QUEUE_COLOR
-    box.SurfaceColor3 = QUEUE_COLOR
-    box.LineThickness = 0.03
-    box.SurfaceTransparency = 0.85
-    box.Parent = Workspace
     cutterMarks[plank] = box
 end
 
@@ -1619,18 +1614,26 @@ function F.fireUntilSplit(section, tool, damage, height, gen)
         end
         return nil
     end
+    local function awaitPiece()
+        for _ = 1, 5 do
+            local found = findNew()
+            if found then
+                return found
+            end
+            task.wait()
+        end
+        return findNew()
+    end
     while os.clock() < deadline and gen == cutterGen and cutterOn do
         if section.Parent then
             lastPos = section.Position
         else
-            task.wait(0.05)
-            return findNew()
+            return awaitPiece()
         end
         remote:FireServer(cutEvent, args)
         task.wait(CUT_FIRE_DELAY)
         if not section.Parent or section.Size.Y ~= originalY then
-            task.wait(0.05)
-            return findNew()
+            return awaitPiece()
         end
     end
     return nil
@@ -1662,7 +1665,7 @@ function F.cutPlank(plank, gen)
     local statusLbl = F.showCutterStatus(planksTotal .. " planks")
     local cutsDone = 0
     F.teleportAbove(section, step)
-    task.wait(0.1)
+    task.wait()
     local current = section
     while gen == cutterGen and cutterOn and current and current.Parent do
         if current.Size.Y - step < CUT_MIN_LEFTOVER - 0.001 then
@@ -1705,7 +1708,6 @@ function F.cutPlank(plank, gen)
             cutterTarget = nextPiece.Parent
             F.showCutterOutline(cutterTarget)
         end
-        task.wait(0.1)
     end
     cutterTimes = 0
     cutterTimeTotal = 0
