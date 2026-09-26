@@ -81,6 +81,7 @@ local byId = {}
 local statusNote = "Idle"
 local query = ""
 local sightings = {}
+local displayNames = {}
 local missing = {}
 local childConn
 local scanQueued = false
@@ -774,6 +775,22 @@ local function canonicalUser(name)
     return nil
 end
 
+local function lookupDisplay(username)
+    if type(username) ~= "string" or username == "" then
+        return username
+    end
+    local cached = displayNames[username]
+    if cached then
+        return cached
+    end
+    local player = Players:FindFirstChild(username)
+    if player and player:IsA("Player") and player.DisplayName ~= "" then
+        displayNames[username] = player.DisplayName
+        return player.DisplayName
+    end
+    return username
+end
+
 local function ownerName(model)
     local owner = model:FindFirstChild("Owner")
     if not (owner and owner:IsA("ValueBase")) then
@@ -781,9 +798,13 @@ local function ownerName(model)
     end
     local value = owner.Value
     if typeof(value) == "Instance" then
+        if value:IsA("Player") and value.DisplayName ~= "" then
+            displayNames[value.Name] = value.DisplayName
+        end
         return value.Name
     end
     if type(value) == "string" and value ~= "" then
+        lookupDisplay(value)
         return value
     end
     return nil
@@ -865,7 +886,7 @@ end
 
 local function remember(owner, item)
     local key = string.lower(owner) .. "\0" .. item.id
-    sightings[key] = { owner = owner, id = item.id }
+    sightings[key] = { owner = owner, display = lookupDisplay(owner), id = item.id }
 end
 
 local function rebuildMissing()
@@ -878,7 +899,7 @@ local function rebuildMissing()
                 holders = {}
                 missing[hit.id] = holders
             end
-            holders[hit.owner] = true
+            holders[hit.owner] = hit.display or lookupDisplay(hit.owner)
         end
     end
 end
@@ -889,8 +910,8 @@ local function holderText(item)
         return ""
     end
     local names = {}
-    for owner in pairs(holders) do
-        table.insert(names, owner)
+    for _, display in pairs(holders) do
+        table.insert(names, display)
     end
     table.sort(names)
     return table.concat(names, ", ")
@@ -901,8 +922,8 @@ local function missingKey()
     for id, holders in pairs(missing) do
         local names = {}
         if type(holders) == "table" then
-            for owner in pairs(holders) do
-                table.insert(names, owner)
+            for owner, display in pairs(holders) do
+                table.insert(names, owner .. "=" .. tostring(display))
             end
         end
         table.sort(names)
@@ -1085,13 +1106,13 @@ refreshUi = function()
     if statusLabel then
         statusLabel.Text = statusNote
             .. "  "
-            .. USERS[1]
+            .. lookupDisplay(USERS[1])
             .. " "
             .. ownedCount(USERS[1])
             .. "/"
             .. #items
             .. "  "
-            .. USERS[2]
+            .. lookupDisplay(USERS[2])
             .. " "
             .. ownedCount(USERS[2])
             .. "/"
@@ -1131,17 +1152,22 @@ refreshUi = function()
         addMark(row, x + 54, 18, on, true)
     end
 
+    local band = 0
     local function addItem(item)
         order += 1
+        band += 1
         local holders = holderText(item)
         local gone = holders ~= ""
         local row = make("Frame", {
             Size = UDim2.new(1, -ROW_INSET, 0, gone and 52 or 36),
-            BackgroundTransparency = 1,
+            BackgroundColor3 = Color3.fromRGB(32, 32, 32),
+            BackgroundTransparency = band % 2 == 0 and 0 or 1,
+            BorderSizePixel = 0,
             LayoutOrder = order,
         }, listFrame)
         make("TextLabel", {
-            Size = UDim2.new(1, -(PRICE_W + 8), 0, 18),
+            Size = UDim2.new(1, -(PRICE_W + 14), 0, 18),
+            Position = UDim2.fromOffset(6, 0),
             BackgroundTransparency = 1,
             Font = Enum.Font.SourceSans,
             Text = item.name,
@@ -1162,13 +1188,13 @@ refreshUi = function()
             TextXAlignment = Enum.TextXAlignment.Right,
             TextTruncate = Enum.TextTruncate.AtEnd,
         }, row)
-        playerMarks(row, 0, SHORT[1], (item.seen[USERS[1]] or {}).have == true)
-        playerMarks(row, 124, SHORT[2], (item.seen[USERS[2]] or {}).have == true)
-        letter(row, 248, 18, "M", gone and YELLOW or MUTED, 14)
+        playerMarks(row, 6, SHORT[1], (item.seen[USERS[1]] or {}).have == true)
+        playerMarks(row, 130, SHORT[2], (item.seen[USERS[2]] or {}).have == true)
+        letter(row, 254, 18, "M", gone and YELLOW or MUTED, 14)
         if gone then
             make("TextLabel", {
-                Size = UDim2.new(1, 0, 0, 16),
-                Position = UDim2.fromOffset(0, 34),
+                Size = UDim2.new(1, -12, 0, 16),
+                Position = UDim2.fromOffset(6, 34),
                 BackgroundTransparency = 1,
                 Font = Enum.Font.SourceSans,
                 Text = holders,
@@ -1379,6 +1405,7 @@ function api.stop()
     scanQueued = false
     pendingMore = false
     sightings = {}
+    displayNames = {}
     missing = {}
     clearHud()
     if statusNote == "Scanning" then
