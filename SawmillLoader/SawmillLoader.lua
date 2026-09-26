@@ -20,10 +20,10 @@ local treeType = "Oak"
 local originalInteractValue = nil
 
 local treeTypes = {
-    ["Generic"]        = true,
+    ["Generic"]        = false,
     ["Cherry"]         = false,
     ["Birch"]          = false,
-    ["Oak"]            = true,
+    ["Oak"]            = false,
     ["Walnut"]         = false,
     ["Koa"]            = false,
     ["Pine"]           = false,
