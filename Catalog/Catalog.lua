@@ -20,7 +20,9 @@ local DB_FILE = DIR .. "/catalog.json"
 local PAGE_FILE = DIR .. "/catalog.html"
 
 local GREEN = Color3.fromRGB(70, 190, 105)
+local CYAN = Color3.fromRGB(70, 200, 210)
 local YELLOW = Color3.fromRGB(230, 196, 70)
+local RED = Color3.fromRGB(210, 70, 70)
 local TEXT = Color3.fromRGB(230, 230, 230)
 local MUTED = Color3.fromRGB(150, 150, 150)
 local KIND_ORDER = { Gift = 1, Axe = 2, Vehicle = 3 }
@@ -734,6 +736,24 @@ local function weHave(item, form)
     return false
 end
 
+local function itemColor(item)
+    local box = weHave(item, "box")
+    local open = weHave(item, "open")
+    if item.kind == "Gift" then
+        if box then
+            return GREEN
+        end
+    elseif box and open then
+        return GREEN
+    elseif box or open then
+        return CYAN
+    end
+    if missing[item.id] then
+        return YELLOW
+    end
+    return RED
+end
+
 local function clearHud()
     local parents = {}
     local ok, hui = pcall(gethui)
@@ -1041,7 +1061,7 @@ refreshUi = function()
             Font = Enum.Font.SourceSans,
             Text = item.name,
             TextSize = 15,
-            TextColor3 = gone and YELLOW or TEXT,
+            TextColor3 = itemColor(item),
             TextXAlignment = Enum.TextXAlignment.Left,
             TextTruncate = Enum.TextTruncate.AtEnd,
         }, row)
