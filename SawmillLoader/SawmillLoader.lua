@@ -685,45 +685,19 @@ local function dragRemote()
     return interaction and interaction:FindFirstChild("ClientIsDragging")
 end
 
-local settled = {}
-
-local function holdLog(log, woodSection, placeCF, seconds, alive)
-    local remote = dragRemote()
-    if not remote then
-        return false
-    end
+local function waitAlive(seconds, alive)
     local left = math.max(seconds, 0)
-    while left > 0 and alive() and log.Parent and woodSection.Parent do
-        woodSection.AssemblyLinearVelocity = Vector3.zero
-        woodSection.AssemblyAngularVelocity = Vector3.zero
-        woodSection.CFrame = placeCF
-        remote:FireServer(log)
-        local slice = math.min(left, 0.05)
+    while left > 0 and alive() do
+        local slice = math.min(left, 0.1)
         task.wait(slice)
         left -= slice
     end
-    return alive() and log.Parent and woodSection.Parent
 end
 
 local function moveLogs(player, sawmills, alive)
     local logs = Workspace:FindFirstChild("LogModels")
     local remote = dragRemote()
-    if not logs or not remote then
-        return
-    end
-
-    local rootPart = currentRoot()
-    if not rootPart then
-        return
-    end
-
-    local reachable = {}
-    for _, sawmill in ipairs(sawmills) do
-        if flatDistance(rootPart.Position, sawmill.tpPosition) <= radius then
-            table.insert(reachable, sawmill)
-        end
-    end
-    if #reachable == 0 then
+    if not logs or not remote or #sawmills == 0 then
         return
     end
 
@@ -747,21 +721,13 @@ local function moveLogs(player, sawmills, alive)
             return
         end
 
-        rootPart = currentRoot()
+        local rootPart = currentRoot()
         if not rootPart or not alive() then
             return
         end
         if flatDistance(rootPart.Position, target.Position) > radius then
-            settled[log] = nil
             return
         end
-        for _, sawmill in ipairs(reachable) do
-            if flatDistance(woodSection.Position, sawmill.tpPosition) <= 4 then
-                settled[log] = sawmill.tpPosition
-                return
-            end
-        end
-        settled[log] = nil
 
         if woodSection.Size.X * woodSection.Size.Z < 0.24 then
             log:MoveTo(SELL_POSITION)
@@ -774,13 +740,11 @@ local function moveLogs(player, sawmills, alive)
         local chosen
         local highestSize = 0
         local woodVolume = woodSection.Size.X * woodSection.Size.Z * woodSection.Size.Y
-        for _, sawmill in ipairs(reachable) do
+        for _, sawmill in ipairs(sawmills) do
             local sawmillSize = sawmill.x * sawmill.y * 0.25
             if woodVolume >= sawmillSize and sawmillSize > highestSize then
-                if flatDistance(rootPart.Position, sawmill.tpPosition) <= radius then
-                    highestSize = sawmillSize
-                    chosen = sawmill
-                end
+                highestSize = sawmillSize
+                chosen = sawmill
             end
         end
         if not chosen then
@@ -794,13 +758,11 @@ local function moveLogs(player, sawmills, alive)
             return
         end
 
-        local placeCF = CFrame.new(chosen.tpPosition) * chosen.rot
-        woodSection.CFrame = placeCF
+        woodSection.CFrame = CFrame.new(chosen.tpPosition) * chosen.rot
         remote:FireServer(log)
-        if holdLog(log, woodSection, placeCF, target.Size.Y / 2, alive)
-            and flatDistance(woodSection.Position, chosen.tpPosition) <= 4
-        then
-            settled[log] = chosen.tpPosition
+        waitAlive(target.Size.Y / 2, alive)
+        if alive() then
+            remote:FireServer(nil)
         end
     end
 
@@ -895,6 +857,7 @@ local function beginRun()
     runToken += 1
     local token = runToken
     lastLogErr = nil
+    api.setStatus("Running")
     dismissHighlight()
     auraStyle = "run"
     paintRun()
@@ -936,7 +899,6 @@ local function endRun()
     local wasRunning = running
     running = false
     runToken += 1
-    table.clear(settled)
     releaseDrag()
     pcall(restorePermission)
     if wasRunning then
