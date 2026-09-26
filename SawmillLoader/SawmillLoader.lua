@@ -18,6 +18,7 @@ local CONFIG_FILE = CONFIG_DIR .. "/sawmill.json"
 local TEXT = Color3.fromRGB(230, 230, 230)
 local MUTED = Color3.fromRGB(160, 160, 160)
 local RED = Color3.fromRGB(210, 70, 70)
+local GREEN = Color3.fromRGB(70, 190, 105)
 
 local RADIUS_MIN = 1
 local RADIUS_MAX = 64
@@ -54,6 +55,8 @@ local sawmillProperties = {
 
 local sawmillOwner
 local woodOwner
+local selectedMillKey
+local selectedModel
 local radius = 8
 local running = false
 local mounted = false
@@ -68,10 +71,12 @@ local savedInteract
 local auraConn
 local auraFolder
 local auraParts = {}
+local millHighlight
 
 local root
 local sawmillCaption
 local woodCaption
+local millCaption
 local startBtn
 local radiusLabel
 local radiusFill
@@ -189,6 +194,7 @@ local function saveConfig()
     local payload = {
         sawmillOwner = sawmillOwner,
         woodOwner = woodOwner,
+        sawmill = selectedMillKey,
         radius = radius,
     }
     local encodedOk, encoded = pcall(function()
@@ -208,6 +214,9 @@ local function applySaved(data)
     end
     if type(data.woodOwner) == "string" and data.woodOwner ~= "" then
         woodOwner = data.woodOwner
+    end
+    if type(data.sawmill) == "string" and data.sawmill ~= "" then
+        selectedMillKey = data.sawmill
     end
     local savedRadius = tonumber(data.radius)
     if savedRadius then
@@ -348,6 +357,23 @@ local function drawAura(center, studs)
     end
 end
 
+local function floorPoint(rootPart)
+    local origin = rootPart.Position
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    local ignore = {}
+    if Player.Character then
+        table.insert(ignore, Player.Character)
+    end
+    if auraFolder then
+        table.insert(ignore, auraFolder)
+    end
+    params.FilterDescendantsInstances = ignore
+    local hit = Workspace:Raycast(origin, Vector3.new(0, -80, 0), params)
+    local ground = hit and hit.Position.Y or (origin.Y - 3)
+    return Vector3.new(origin.X, ground + 0.06, origin.Z)
+end
+
 local function refreshAuraBinding()
     if running and not auraConn then
         auraConn = RunService.Heartbeat:Connect(function()
@@ -358,7 +384,7 @@ local function refreshAuraBinding()
             if not rootPart then
                 return
             end
-            drawAura(rootPart.Position, radius)
+            drawAura(floorPoint(rootPart), radius)
         end)
     elseif not running then
         if auraConn then
@@ -418,14 +444,109 @@ local function readSawmill(model, owner)
     local adjustment = 5
     local blockage = Vector3.new(alert.Position.X, alert.Position.Y - 1, alert.Position.Z)
     local tp = CFrame.new(blockage) + Vector3.new(diff.X * adjustment, -0.025, diff.Z * adjustment)
+    local position = alert.Position
+    if model:IsA("Model") then
+        position = model:GetPivot().Position
+    end
 
     return {
         Name = item,
+        model = model,
+        position = position,
         tpPosition = tp.Position,
         x = dimX.Value,
         y = dimZ.Value,
         rot = rot,
     }
+end
+
+local function millKey(entry)
+    local position = entry.position
+    return string.format(
+        "%s|%d|%d|%d",
+        entry.Name,
+        math.floor(position.X + 0.5),
+        math.floor(position.Y + 0.5),
+        math.floor(position.Z + 0.5)
+    )
+end
+
+local function millLabels(list)
+    local totals = {}
+    for _, entry in ipairs(list) do
+        totals[entry.Name] = (totals[entry.Name] or 0) + 1
+    end
+    local seen = {}
+    local labels = {}
+    for index, entry in ipairs(list) do
+        local count = (seen[entry.Name] or 0) + 1
+        seen[entry.Name] = count
+        if totals[entry.Name] > 1 then
+            labels[index] = entry.Name .. " " .. tostring(count)
+        else
+            labels[index] = entry.Name
+        end
+    end
+    return labels
+end
+
+local function findMill(list)
+    for index, entry in ipairs(list) do
+        if selectedModel and entry.model == selectedModel then
+            return entry, index
+        end
+    end
+    if not selectedMillKey then
+        return nil, nil
+    end
+    for index, entry in ipairs(list) do
+        if millKey(entry) == selectedMillKey then
+            return entry, index
+        end
+    end
+    return nil, nil
+end
+
+local function clearHighlight()
+    if millHighlight then
+        millHighlight:Destroy()
+        millHighlight = nil
+    end
+end
+
+local function highlightModel(model)
+    clearHighlight()
+    if running or not model or not model.Parent then
+        return
+    end
+    local highlight = Instance.new("Highlight")
+    highlight.Name = "SawmillLoaderHighlight"
+    highlight.Adornee = model
+    highlight.FillColor = GREEN
+    highlight.OutlineColor = Color3.fromRGB(190, 255, 205)
+    highlight.FillTransparency = 0.45
+    highlight.OutlineTransparency = 0
+    highlight.Parent = model
+    millHighlight = highlight
+end
+
+local function refreshHighlight()
+    if running then
+        clearHighlight()
+        return
+    end
+    local owner = findPlayer(sawmillOwner)
+    if not owner then
+        clearHighlight()
+        return
+    end
+    local entry = findMill(getPlayerSawmills(owner))
+    if entry then
+        selectedModel = entry.model
+        highlightModel(entry.model)
+    else
+        clearHighlight()
+    end
 end
 
 local function getPlayerSawmills(owner)
@@ -452,7 +573,7 @@ local function pause(seconds, alive)
     end
 end
 
-local function moveLogs(player, sawmills, alive)
+local function moveLogs(player, chosen, alive)
     local logs = Workspace:FindFirstChild("LogModels")
     if not logs then
         return
@@ -495,21 +616,6 @@ local function moveLogs(player, sawmills, alive)
             return
         end
 
-        local highestSawmill
-        local highestSize = 0
-        local woodVolume = woodSection.Size.X * woodSection.Size.Z * woodSection.Size.Y
-        for index, sawmill in ipairs(sawmills) do
-            local sawmillSize = sawmill.x * sawmill.y * 0.25
-            if woodVolume >= sawmillSize and sawmillSize > highestSize then
-                highestSize = sawmillSize
-                highestSawmill = index
-            end
-        end
-
-        local chosen = highestSawmill and sawmills[highestSawmill]
-        if not chosen then
-            return
-        end
         local props = sawmillProperties[chosen.Name]
         if not props or woodSection.Size.Y > props.length then
             return
@@ -555,8 +661,13 @@ local function step(alive)
         api.setStatus("No sawmills")
         return
     end
+    local chosen = findMill(sawmills)
+    if not chosen then
+        api.setStatus("Select sawmill")
+        return
+    end
     api.setStatus("Running")
-    moveLogs(woodPlayer, sawmills, alive)
+    moveLogs(woodPlayer, chosen, alive)
 end
 
 function api.setStatus(text)
@@ -576,9 +687,22 @@ local function paintRun()
         startBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
     else
         startBtn.Text = "Start"
-        startBtn.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
-        startBtn.TextColor3 = Color3.fromRGB(18, 18, 18)
+        startBtn.BackgroundColor3 = GREEN
+        startBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
     end
+end
+
+local function millCaptionText()
+    local owner = findPlayer(sawmillOwner)
+    if not owner then
+        return "Select"
+    end
+    local list = getPlayerSawmills(owner)
+    local entry, index = findMill(list)
+    if not entry then
+        return "Select"
+    end
+    return millLabels(list)[index]
 end
 
 local function paintOwners()
@@ -587,6 +711,9 @@ local function paintOwners()
     end
     if woodCaption and woodCaption.Parent then
         woodCaption.Text = ownerLabel(woodOwner)
+    end
+    if millCaption and millCaption.Parent then
+        millCaption.Text = millCaptionText()
     end
 end
 
@@ -600,7 +727,7 @@ local function paintRadius()
     end
 end
 
-function api.start()
+local function beginRun()
     if running then
         return
     end
@@ -608,6 +735,7 @@ function api.start()
     runToken += 1
     local token = runToken
     lastLogErr = nil
+    clearHighlight()
     paintRun()
     refreshAuraBinding()
     task.spawn(function()
@@ -637,7 +765,7 @@ function api.start()
     end)
 end
 
-function api.stop()
+local function endRun()
     local wasRunning = running
     running = false
     runToken += 1
@@ -647,9 +775,18 @@ function api.stop()
     end
     paintRun()
     refreshAuraBinding()
+    refreshHighlight()
+end
+
+function api.start()
+end
+
+function api.stop()
+    endRun()
 end
 
 local function closeMenu()
+    local wasOpen = menuKind ~= nil
     menuKind = nil
     if menu then
         menu:Destroy()
@@ -659,16 +796,32 @@ local function closeMenu()
         backdrop:Destroy()
         backdrop = nil
     end
+    if wasOpen and not running then
+        refreshHighlight()
+    end
 end
 
 local function setOwner(kind, name)
     if kind == "sawmill" then
+        if sawmillOwner ~= name then
+            selectedMillKey = nil
+            selectedModel = nil
+        end
         sawmillOwner = name
     else
         woodOwner = name
     end
     paintOwners()
     saveConfig()
+    refreshHighlight()
+end
+
+local function setMill(entry)
+    selectedModel = entry.model
+    selectedMillKey = millKey(entry)
+    paintOwners()
+    saveConfig()
+    refreshHighlight()
 end
 
 local function openMenu(kind, y)
@@ -690,9 +843,42 @@ local function openMenu(kind, y)
         task.defer(closeMenu)
     end)
 
-    local players = sortedPlayers()
-    local current = kind == "sawmill" and sawmillOwner or woodOwner
-    local height = math.min(#players * 22, 198)
+    local rows = {}
+    if kind == "mill" then
+        local owner = findPlayer(sawmillOwner)
+        local mills = owner and getPlayerSawmills(owner) or {}
+        local labels = millLabels(mills)
+        for index, entry in ipairs(mills) do
+            local picked = entry
+            table.insert(rows, {
+                text = labels[index],
+                selected = picked.model == selectedModel or millKey(picked) == selectedMillKey,
+                choose = function()
+                    setMill(picked)
+                end,
+                hover = function()
+                    highlightModel(picked.model)
+                end,
+                unhover = function()
+                    refreshHighlight()
+                end,
+            })
+        end
+    else
+        local current = kind == "sawmill" and sawmillOwner or woodOwner
+        for _, player in ipairs(sortedPlayers()) do
+            local picked = player
+            table.insert(rows, {
+                text = playerLabel(picked),
+                selected = picked.Name == current,
+                choose = function()
+                    setOwner(kind, picked.Name)
+                end,
+            })
+        end
+    end
+
+    local height = math.clamp(#rows * 22, 22, 160)
     menu = make("ScrollingFrame", {
         Size = UDim2.new(1, -16, 0, height),
         Position = UDim2.fromOffset(8, y + 24),
@@ -711,16 +897,14 @@ local function openMenu(kind, y)
         SortOrder = Enum.SortOrder.LayoutOrder,
     }, menu)
 
-    for index, player in ipairs(players) do
-        local picked = player
-        local selected = picked.Name == current
+    for index, item in ipairs(rows) do
         local row = make("TextButton", {
             Size = UDim2.new(1, 0, 0, 22),
             BackgroundColor3 = Color3.fromRGB(58, 58, 58),
-            BackgroundTransparency = selected and 0 or 1,
+            BackgroundTransparency = item.selected and 0 or 1,
             BorderSizePixel = 0,
             Font = Enum.Font.SourceSans,
-            Text = playerLabel(picked),
+            Text = item.text,
             TextSize = 15,
             TextColor3 = TEXT,
             TextXAlignment = Enum.TextXAlignment.Left,
@@ -733,8 +917,12 @@ local function openMenu(kind, y)
             PaddingLeft = UDim.new(0, 6),
             PaddingRight = UDim.new(0, 6),
         }, row)
+        if item.hover then
+            row.MouseEnter:Connect(item.hover)
+            row.MouseLeave:Connect(item.unhover)
+        end
         row.MouseButton1Click:Connect(function()
-            setOwner(kind, picked.Name)
+            item.choose()
             task.defer(closeMenu)
         end)
     end
@@ -818,10 +1006,13 @@ local function build(parent)
     fieldLabel("Wood owner", 58)
     local woodBtn
     woodBtn, woodCaption = dropdownButton(76)
+    fieldLabel("Sawmill", 108)
+    local millBtn
+    millBtn, millCaption = dropdownButton(126)
 
     radiusLabel = make("TextLabel", {
         Size = UDim2.new(1, -16, 0, 16),
-        Position = UDim2.fromOffset(8, 108),
+        Position = UDim2.fromOffset(8, 158),
         BackgroundTransparency = 1,
         Font = Enum.Font.SourceSans,
         Text = "Radius  " .. tostring(radius),
@@ -832,7 +1023,7 @@ local function build(parent)
 
     radiusSlider = make("TextButton", {
         Size = UDim2.new(1, -16, 0, 14),
-        Position = UDim2.fromOffset(8, 128),
+        Position = UDim2.fromOffset(8, 178),
         BackgroundColor3 = Color3.fromRGB(40, 40, 40),
         BorderSizePixel = 0,
         Text = "",
@@ -846,20 +1037,20 @@ local function build(parent)
 
     startBtn = make("TextButton", {
         Size = UDim2.new(1, -16, 0, 22),
-        Position = UDim2.fromOffset(8, 156),
-        BackgroundColor3 = Color3.fromRGB(230, 230, 230),
+        Position = UDim2.fromOffset(8, 206),
+        BackgroundColor3 = GREEN,
         BorderSizePixel = 0,
         Font = Enum.Font.SourceSans,
         Text = "Start",
         TextSize = 15,
-        TextColor3 = Color3.fromRGB(18, 18, 18),
+        TextColor3 = Color3.fromRGB(255, 255, 255),
         AutoButtonColor = false,
         ZIndex = 3,
     }, root)
 
     statusLabel = make("TextLabel", {
         Size = UDim2.new(1, -16, 0, 16),
-        Position = UDim2.fromOffset(8, 184),
+        Position = UDim2.fromOffset(8, 234),
         BackgroundTransparency = 1,
         Font = Enum.Font.SourceSans,
         Text = statusText,
@@ -883,12 +1074,19 @@ local function build(parent)
             openMenu("wood", 76)
         end
     end)
+    millBtn.MouseButton1Click:Connect(function()
+        if menuKind == "mill" then
+            closeMenu()
+        else
+            openMenu("mill", 126)
+        end
+    end)
     startBtn.MouseButton1Click:Connect(function()
         closeMenu()
         if running then
-            api.stop()
+            endRun()
         else
-            api.start()
+            beginRun()
         end
     end)
 
@@ -934,12 +1132,14 @@ function api.mount(parent)
     end
     build(parent)
     mounted = true
+    refreshHighlight()
     refreshAuraBinding()
 end
 
 function api.unmount()
     mounted = false
     closeMenu()
+    clearHighlight()
     clearConns()
     if root then
         root:Destroy()
@@ -947,6 +1147,7 @@ function api.unmount()
     end
     sawmillCaption = nil
     woodCaption = nil
+    millCaption = nil
     startBtn = nil
     radiusLabel = nil
     radiusFill = nil
