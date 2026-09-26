@@ -18,6 +18,7 @@ local DB_FILE = DIR .. "/catalog.json"
 local PAGE_FILE = DIR .. "/catalog.html"
 
 local GREEN = Color3.fromRGB(70, 190, 105)
+local CYAN = Color3.fromRGB(70, 200, 210)
 local YELLOW = Color3.fromRGB(230, 196, 70)
 local RED = Color3.fromRGB(210, 70, 70)
 local TEXT = Color3.fromRGB(230, 230, 230)
@@ -850,8 +851,41 @@ local function weHave(item)
     return false
 end
 
+local function userHas(item, username)
+    local slot = item.seen[username]
+    return slot ~= nil and slot.have == true
+end
+
+local function localTrackedUser()
+    local name = Player and Player.Name
+    if type(name) ~= "string" then
+        return nil
+    end
+    local lower = string.lower(name)
+    for _, user in ipairs(USERS) do
+        if string.lower(user) == lower then
+            return user
+        end
+    end
+    return nil
+end
+
 local function itemColor(item)
-    if weHave(item) then
+    local mine = localTrackedUser()
+    local iHave = mine ~= nil and userHas(item, mine)
+    local both = iHave
+    if both then
+        for _, user in ipairs(USERS) do
+            if not userHas(item, user) then
+                both = false
+                break
+            end
+        end
+    end
+    if both then
+        return CYAN
+    end
+    if iHave then
         return GREEN
     end
     if missing[item.id] then
@@ -886,7 +920,18 @@ end
 
 local function remember(owner, item)
     local key = string.lower(owner) .. "\0" .. item.id
-    sightings[key] = { owner = owner, display = lookupDisplay(owner), id = item.id }
+    local hit = sightings[key]
+    if not hit then
+        hit = {
+            owner = owner,
+            display = lookupDisplay(owner),
+            id = item.id,
+            count = 0,
+        }
+        sightings[key] = hit
+    end
+    hit.display = lookupDisplay(owner)
+    hit.count += 1
 end
 
 local function rebuildMissing()
@@ -899,7 +944,10 @@ local function rebuildMissing()
                 holders = {}
                 missing[hit.id] = holders
             end
-            holders[hit.owner] = hit.display or lookupDisplay(hit.owner)
+            holders[hit.owner] = {
+                display = hit.display or lookupDisplay(hit.owner),
+                count = hit.count or 1,
+            }
         end
     end
 end
@@ -910,8 +958,14 @@ local function holderText(item)
         return ""
     end
     local names = {}
-    for _, display in pairs(holders) do
-        table.insert(names, display)
+    for _, slot in pairs(holders) do
+        local display = slot
+        local count = 1
+        if type(slot) == "table" then
+            display = slot.display
+            count = slot.count or 1
+        end
+        table.insert(names, tostring(display) .. " x" .. tostring(count))
     end
     table.sort(names)
     return table.concat(names, ", ")
@@ -922,8 +976,14 @@ local function missingKey()
     for id, holders in pairs(missing) do
         local names = {}
         if type(holders) == "table" then
-            for owner, display in pairs(holders) do
-                table.insert(names, owner .. "=" .. tostring(display))
+            for owner, slot in pairs(holders) do
+                local display = slot
+                local count = 1
+                if type(slot) == "table" then
+                    display = slot.display
+                    count = slot.count or 1
+                end
+                table.insert(names, owner .. "=" .. tostring(display) .. ":" .. tostring(count))
             end
         end
         table.sort(names)
