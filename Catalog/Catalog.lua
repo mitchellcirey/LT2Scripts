@@ -12,6 +12,8 @@ local HttpService = Services.HttpService
 local Player = Players.LocalPlayer
 
 local USERS = { "Cheeseandrice924", "digital_marine" }
+local SHORT = { "Meow", "Jamey" }
+local KIND_TITLE = { Gift = "Gifts", Axe = "Axes", Vehicle = "Vehicles" }
 local DIR = "LT2Scripts"
 local CACHE_FILE = DIR .. "/purchasables.json"
 local DB_FILE = DIR .. "/catalog.json"
@@ -22,11 +24,8 @@ local YELLOW = Color3.fromRGB(230, 196, 70)
 local TEXT = Color3.fromRGB(230, 230, 230)
 local MUTED = Color3.fromRGB(150, 150, 150)
 local KIND_ORDER = { Gift = 1, Axe = 2, Vehicle = 3 }
-local PRICE_W = 132
-local PLAYER_W = 62
-local M_W = 22
 local ROW_INSET = 16
-local TAIL = PRICE_W + M_W + PLAYER_W * 2
+local PRICE_W = 128
 local PRICE_SHEET = "https://docs.google.com/spreadsheets/d/1zWvtEj0_Lp6dpk1yapMZ0pX_u6P58MN3u9znnPqjRxY/export?format=csv&gid=1798480138"
 
 local ALIAS = {
@@ -942,21 +941,31 @@ local function clearRows()
     end
 end
 
-local function addMark(parent, x, on, used)
-    local text = ""
-    local color = MUTED
-    if used then
-        text = on and "✓" or "–"
-        color = on and GREEN or MUTED
+local function addMark(parent, x, y, on, used)
+    if not used then
+        return
     end
     make("TextLabel", {
-        Size = UDim2.fromOffset(16, 22),
-        Position = UDim2.fromOffset(x, 0),
+        Size = UDim2.fromOffset(16, 16),
+        Position = UDim2.fromOffset(x, y),
+        BackgroundTransparency = 1,
+        Font = Enum.Font.SourceSans,
+        Text = on and "✓" or "–",
+        TextSize = 15,
+        TextColor3 = on and GREEN or MUTED,
+    }, parent)
+end
+
+local function letter(parent, x, y, text, color, width)
+    make("TextLabel", {
+        Size = UDim2.fromOffset(width or 14, 16),
+        Position = UDim2.fromOffset(x, y),
         BackgroundTransparency = 1,
         Font = Enum.Font.SourceSans,
         Text = text,
-        TextSize = 16,
+        TextSize = 13,
         TextColor3 = color,
+        TextXAlignment = Enum.TextXAlignment.Left,
     }, parent)
 end
 
@@ -981,65 +990,104 @@ refreshUi = function()
     end
     clearRows()
     local needle = query
-    local order = 0
+    local shown = {}
     for _, item in ipairs(items) do
         local blob = string.lower(item.name .. " " .. item.id)
         if needle == "" or string.find(blob, needle, 1, true) then
-            order += 1
-            local row = make("Frame", {
-                Size = UDim2.new(1, -ROW_INSET, 0, 22),
-                BackgroundTransparency = 1,
-                LayoutOrder = order,
-            }, listFrame)
-            make("TextLabel", {
-                Size = UDim2.new(1, -TAIL, 1, 0),
-                BackgroundTransparency = 1,
-                Font = Enum.Font.SourceSans,
-                Text = item.name,
-                TextSize = 15,
-                TextColor3 = TEXT,
-                TextXAlignment = Enum.TextXAlignment.Left,
-                TextTruncate = Enum.TextTruncate.AtEnd,
-            }, row)
-            local first = item.seen[USERS[1]] or {}
-            local second = item.seen[USERS[2]] or {}
-            local openUsed = item.kind ~= "Gift"
-            local firstFrame = make("Frame", {
-                Size = UDim2.fromOffset(PLAYER_W, 22),
-                Position = UDim2.new(1, -TAIL, 0, 0),
-                BackgroundTransparency = 1,
-            }, row)
-            addMark(firstFrame, 4, first.box, true)
-            addMark(firstFrame, 20, first.open, openUsed)
-            local secondFrame = make("Frame", {
-                Size = UDim2.fromOffset(PLAYER_W, 22),
-                Position = UDim2.new(1, -(PRICE_W + M_W + PLAYER_W), 0, 0),
-                BackgroundTransparency = 1,
-            }, row)
-            addMark(secondFrame, 4, second.box, true)
-            addMark(secondFrame, 20, second.open, openUsed)
-            local gone = missing[item.id] == true
-            make("TextLabel", {
-                Size = UDim2.fromOffset(M_W, 22),
-                Position = UDim2.new(1, -(PRICE_W + M_W), 0, 0),
-                BackgroundTransparency = 1,
-                Font = Enum.Font.SourceSans,
-                Text = gone and "M" or "–",
-                TextSize = 15,
-                TextColor3 = gone and YELLOW or MUTED,
-            }, row)
-            local price, estimated = cellPrice(item)
-            make("TextLabel", {
-                Size = UDim2.fromOffset(PRICE_W - 4, 22),
-                Position = UDim2.new(1, -PRICE_W, 0, 0),
-                BackgroundTransparency = 1,
-                Font = Enum.Font.SourceSans,
-                Text = price,
-                TextSize = 12,
-                TextColor3 = estimated and TEXT or MUTED,
-                TextXAlignment = Enum.TextXAlignment.Left,
-                TextTruncate = Enum.TextTruncate.AtEnd,
-            }, row)
+            table.insert(shown, item)
+        end
+    end
+
+    local order = 0
+    local function section(title, color)
+        order += 1
+        local row = make("Frame", {
+            Size = UDim2.new(1, -ROW_INSET, 0, 20),
+            BackgroundTransparency = 1,
+            LayoutOrder = order,
+        }, listFrame)
+        make("TextLabel", {
+            Size = UDim2.new(1, 0, 1, 0),
+            BackgroundTransparency = 1,
+            Font = Enum.Font.SourceSansBold,
+            Text = title,
+            TextSize = 14,
+            TextColor3 = color,
+            TextXAlignment = Enum.TextXAlignment.Left,
+        }, row)
+    end
+
+    local function playerMarks(row, x, label, slot, openUsed)
+        letter(row, x, 18, label, MUTED, 52)
+        letter(row, x + 54, 18, "B", MUTED, 12)
+        addMark(row, x + 66, 18, slot.box == true, true)
+        if openUsed then
+            letter(row, x + 84, 18, "O", MUTED, 12)
+            addMark(row, x + 96, 18, slot.open == true, true)
+        end
+    end
+
+    local function addItem(item)
+        order += 1
+        local gone = missing[item.id] == true
+        local row = make("Frame", {
+            Size = UDim2.new(1, -ROW_INSET, 0, 36),
+            BackgroundTransparency = 1,
+            LayoutOrder = order,
+        }, listFrame)
+        make("TextLabel", {
+            Size = UDim2.new(1, -(PRICE_W + 8), 0, 18),
+            BackgroundTransparency = 1,
+            Font = Enum.Font.SourceSans,
+            Text = item.name,
+            TextSize = 15,
+            TextColor3 = gone and YELLOW or TEXT,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            TextTruncate = Enum.TextTruncate.AtEnd,
+        }, row)
+        local price, estimated = cellPrice(item)
+        make("TextLabel", {
+            Size = UDim2.fromOffset(PRICE_W, 18),
+            Position = UDim2.new(1, -PRICE_W, 0, 0),
+            BackgroundTransparency = 1,
+            Font = Enum.Font.SourceSans,
+            Text = price,
+            TextSize = 14,
+            TextColor3 = estimated and TEXT or MUTED,
+            TextXAlignment = Enum.TextXAlignment.Right,
+            TextTruncate = Enum.TextTruncate.AtEnd,
+        }, row)
+        local openUsed = item.kind ~= "Gift"
+        playerMarks(row, 0, SHORT[1], item.seen[USERS[1]] or {}, openUsed)
+        playerMarks(row, 124, SHORT[2], item.seen[USERS[2]] or {}, openUsed)
+        letter(row, 248, 18, "M", gone and YELLOW or MUTED, 14)
+    end
+
+    local missingRows = {}
+    local groups = { Gift = {}, Axe = {}, Vehicle = {} }
+    for _, item in ipairs(shown) do
+        if missing[item.id] then
+            table.insert(missingRows, item)
+        elseif groups[item.kind] then
+            table.insert(groups[item.kind], item)
+        end
+    end
+    table.sort(missingRows, function(a, b)
+        return tostring(a.name) < tostring(b.name)
+    end)
+    if #missingRows > 0 then
+        section("Missing", YELLOW)
+        for _, item in ipairs(missingRows) do
+            addItem(item)
+        end
+    end
+    for _, kind in ipairs({ "Gift", "Axe", "Vehicle" }) do
+        local bucket = groups[kind]
+        if #bucket > 0 then
+            section(KIND_TITLE[kind], MUTED)
+            for _, item in ipairs(bucket) do
+                addItem(item)
+            end
         end
     end
 end
@@ -1089,12 +1137,12 @@ local function build(parent)
     }, searchBox)
 
     local header = make("Frame", {
-        Size = UDim2.new(1, -(16 + ROW_INSET), 0, 32),
+        Size = UDim2.new(1, -(16 + ROW_INSET), 0, 18),
         Position = UDim2.fromOffset(8, 36),
         BackgroundTransparency = 1,
     }, root)
     make("TextLabel", {
-        Size = UDim2.new(1, -TAIL, 0, 16),
+        Size = UDim2.new(1, -PRICE_W, 1, 0),
         BackgroundTransparency = 1,
         Font = Enum.Font.SourceSans,
         Text = "Item",
@@ -1102,68 +1150,20 @@ local function build(parent)
         TextColor3 = MUTED,
         TextXAlignment = Enum.TextXAlignment.Left,
     }, header)
-
-    local function playerHeader(user, x)
-        local frame = make("Frame", {
-            Size = UDim2.fromOffset(PLAYER_W, 32),
-            Position = UDim2.new(1, x, 0, 0),
-            BackgroundTransparency = 1,
-        }, header)
-        make("TextLabel", {
-            Size = UDim2.new(1, 0, 0, 14),
-            BackgroundTransparency = 1,
-            Font = Enum.Font.SourceSans,
-            Text = user,
-            TextSize = 12,
-            TextColor3 = MUTED,
-            TextXAlignment = Enum.TextXAlignment.Left,
-            TextTruncate = Enum.TextTruncate.AtEnd,
-        }, frame)
-        make("TextLabel", {
-            Size = UDim2.fromOffset(16, 14),
-            Position = UDim2.fromOffset(4, 14),
-            BackgroundTransparency = 1,
-            Font = Enum.Font.SourceSans,
-            Text = "B",
-            TextSize = 12,
-            TextColor3 = MUTED,
-        }, frame)
-        make("TextLabel", {
-            Size = UDim2.fromOffset(16, 14),
-            Position = UDim2.fromOffset(20, 14),
-            BackgroundTransparency = 1,
-            Font = Enum.Font.SourceSans,
-            Text = "O",
-            TextSize = 12,
-            TextColor3 = MUTED,
-        }, frame)
-    end
-
-    playerHeader(USERS[1], -TAIL)
-    playerHeader(USERS[2], -(PRICE_W + M_W + PLAYER_W))
     make("TextLabel", {
-        Size = UDim2.fromOffset(M_W, 14),
-        Position = UDim2.new(1, -(PRICE_W + M_W), 0, 14),
-        BackgroundTransparency = 1,
-        Font = Enum.Font.SourceSans,
-        Text = "M",
-        TextSize = 12,
-        TextColor3 = YELLOW,
-    }, header)
-    make("TextLabel", {
-        Size = UDim2.fromOffset(PRICE_W - 4, 16),
+        Size = UDim2.fromOffset(PRICE_W, 18),
         Position = UDim2.new(1, -PRICE_W, 0, 0),
         BackgroundTransparency = 1,
         Font = Enum.Font.SourceSans,
         Text = "Price",
         TextSize = 13,
         TextColor3 = MUTED,
-        TextXAlignment = Enum.TextXAlignment.Left,
+        TextXAlignment = Enum.TextXAlignment.Right,
     }, header)
 
     listFrame = make("ScrollingFrame", {
-        Size = UDim2.new(1, -16, 1, -92),
-        Position = UDim2.fromOffset(8, 70),
+        Size = UDim2.new(1, -16, 1, -78),
+        Position = UDim2.fromOffset(8, 56),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
         ScrollBarThickness = 3,
@@ -1174,7 +1174,7 @@ local function build(parent)
     }, root)
     make("UIListLayout", {
         FillDirection = Enum.FillDirection.Vertical,
-        Padding = UDim.new(0, 1),
+        Padding = UDim.new(0, 4),
         SortOrder = Enum.SortOrder.LayoutOrder,
     }, listFrame)
 
