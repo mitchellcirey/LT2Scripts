@@ -332,7 +332,7 @@ make("TextLabel", {
     Position = UDim2.fromOffset(0, 36),
     BackgroundTransparency = 1,
     Font = Enum.Font.SourceSans,
-    Text = "Jell for Lumber Tycoon 2.",
+    Text = "A dashboard for Lumber Tycoon 2.",
     TextSize = 16,
     TextColor3 = Color3.fromRGB(210, 210, 210),
     TextXAlignment = Enum.TextXAlignment.Left,
