@@ -1328,6 +1328,81 @@ queueSave = function()
     end)
 end
 
+local function findCatalogPath()
+    local tail = "\\AppData\\Local\\Potassium\\workspace\\LT2Scripts\\catalog.html"
+    local function hit(user)
+        if type(user) ~= "string" or user == "" or user == "." or user == ".." then
+            return nil
+        end
+        local path = "C:\\Users\\" .. user .. tail
+        local ok, data = pcall(readfile, string.gsub(path, "\\", "/"))
+        if ok and type(data) == "string" and #data > 0 then
+            return path
+        end
+        return nil
+    end
+    local listedOk, listed = pcall(listfiles, "C:/Users")
+    if listedOk and type(listed) == "table" then
+        for _, entry in pairs(listed) do
+            local name = string.match(string.gsub(tostring(entry), "\\", "/"), "[^/]+$")
+            local found = hit(name)
+            if found then
+                return found
+            end
+        end
+    end
+    local guesses = {}
+    if Player and type(Player.Name) == "string" then
+        table.insert(guesses, Player.Name)
+    end
+    table.insert(guesses, "Mitchell")
+    for _, name in ipairs(guesses) do
+        local found = hit(name)
+        if found then
+            return found
+        end
+    end
+    return nil
+end
+
+local function tapKey(key)
+    keypress(key)
+    keyrelease(key)
+end
+
+local function chord(hold, key)
+    keypress(hold)
+    keypress(key)
+    keyrelease(key)
+    keyrelease(hold)
+end
+
+local function openCatalog()
+    if type(writefile) == "function" then
+        ensureFolder()
+        pcall(writefile, PAGE_FILE, buildPage())
+    end
+    local path = findCatalogPath()
+    if not path then
+        if type(messagebox) == "function" then
+            messagebox("Catalog file was not found.", "Open Catalog", 0)
+        end
+        return
+    end
+    if type(setclipboard) ~= "function" or type(keypress) ~= "function" or type(keyrelease) ~= "function" then
+        if type(setclipboard) == "function" then
+            setclipboard(path)
+        end
+        return
+    end
+    setclipboard(path)
+    chord(0x5B, 0x52)
+    task.wait(0.35)
+    chord(0x11, 0x56)
+    task.wait(0.1)
+    tapKey(0x0D)
+end
+
 local function build(parent)
     root = make("Frame", {
         Size = UDim2.fromScale(1, 1),
@@ -1404,7 +1479,7 @@ local function build(parent)
     }, listFrame)
 
     statusLabel = make("TextLabel", {
-        Size = UDim2.new(1, -16, 0, 16),
+        Size = UDim2.new(1, -120, 0, 16),
         Position = UDim2.new(0, 8, 1, -18),
         BackgroundTransparency = 1,
         Font = Enum.Font.SourceSans,
@@ -1414,6 +1489,21 @@ local function build(parent)
         TextXAlignment = Enum.TextXAlignment.Left,
         TextTruncate = Enum.TextTruncate.AtEnd,
     }, root)
+
+    local openButton = make("TextButton", {
+        Size = UDim2.fromOffset(96, 18),
+        Position = UDim2.new(1, -104, 1, -22),
+        BackgroundColor3 = Color3.fromRGB(58, 58, 58),
+        BorderSizePixel = 0,
+        Font = Enum.Font.SourceSans,
+        Text = "Open Catalog",
+        TextSize = 13,
+        TextColor3 = TEXT,
+        AutoButtonColor = true,
+    }, root)
+    openButton.MouseButton1Click:Connect(function()
+        task.spawn(openCatalog)
+    end)
 
     searchBox:GetPropertyChangedSignal("Text"):Connect(function()
         query = string.lower(searchBox.Text)
