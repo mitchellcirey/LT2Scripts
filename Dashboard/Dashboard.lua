@@ -25,6 +25,11 @@ local SCRIPTS = {
         name = "Duper",
         url = BASE .. "Duper/Duper.lua",
     },
+    {
+        id = "SawmillLoader",
+        name = "Sawmill Loader",
+        url = BASE .. "SawmillLoader/SawmillLoader.lua",
+    },
 }
 
 local GUI_NAME = "JellDashboard"
