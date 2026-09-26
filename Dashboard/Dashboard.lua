@@ -317,98 +317,41 @@ local welcomePage = make("Frame", {
     BackgroundTransparency = 1,
 }, content)
 
-local function welcomeText(props)
-    props.BackgroundTransparency = 1
-    props.Font = props.Font or Enum.Font.SourceSans
-    props.TextXAlignment = props.TextXAlignment or Enum.TextXAlignment.Left
-    return make("TextLabel", props, welcomePage)
-end
-
-local function welcomeRule(y)
-    make("Frame", {
-        Size = UDim2.new(1, 0, 0, 1),
-        Position = UDim2.fromOffset(0, y),
-        BackgroundColor3 = Color3.fromRGB(48, 48, 48),
-        BorderSizePixel = 0,
-    }, welcomePage)
-end
-
-local function welcomeRow(left, right, y)
-    welcomeText({
-        Size = UDim2.fromOffset(88, 22),
-        Position = UDim2.fromOffset(0, y),
-        Text = left,
-        TextSize = 15,
-        TextColor3 = TEXT,
-    })
-    welcomeText({
-        Size = UDim2.new(1, -96, 0, 22),
-        Position = UDim2.fromOffset(96, y),
-        Text = right,
-        TextSize = 15,
-        TextColor3 = MUTED,
-    })
-end
-
-welcomeText({
+make("TextLabel", {
     Size = UDim2.new(1, 0, 0, 28),
+    BackgroundTransparency = 1,
+    Font = Enum.Font.SourceSans,
     Text = "Welcome",
     TextSize = 22,
     TextColor3 = TEXT,
-})
+    TextXAlignment = Enum.TextXAlignment.Left,
+}, welcomePage)
 
-welcomeText({
-    Size = UDim2.new(1, 0, 0, 20),
-    Position = UDim2.fromOffset(0, 28),
+make("TextLabel", {
+    Size = UDim2.new(1, 0, 0, 22),
+    Position = UDim2.fromOffset(0, 36),
+    BackgroundTransparency = 1,
+    Font = Enum.Font.SourceSans,
     Text = "Jell for Lumber Tycoon 2.",
-    TextSize = 15,
-    TextColor3 = MUTED,
-})
+    TextSize = 16,
+    TextColor3 = Color3.fromRGB(210, 210, 210),
+    TextXAlignment = Enum.TextXAlignment.Left,
+}, welcomePage)
 
-welcomeText({
-    Size = UDim2.new(1, 0, 0, 20),
-    Position = UDim2.fromOffset(0, 64),
-    Font = Enum.Font.SourceSansBold,
-    Text = "Scripts",
-    TextSize = 15,
-    TextColor3 = TEXT,
-})
-
-welcomeRow("Catalog", "Item prices", 88)
-welcomeRow("Duper", "Copies items onto your plot", 110)
-welcomeRow("Chopper", "Cuts trees on your land", 132)
-
-welcomeRule(166)
-
-welcomeText({
-    Size = UDim2.new(1, 0, 0, 20),
-    Position = UDim2.fromOffset(0, 178),
-    Font = Enum.Font.SourceSansBold,
-    Text = "Controls",
-    TextSize = 15,
-    TextColor3 = TEXT,
-})
-
-welcomeRow("Name", "Opens that script", 202)
-welcomeRow("Power", "Starts and stops it", 224)
-welcomeRow("Settings", "Lighting, walk, and the toggle key", 246)
-welcomeRow("Tab", "Shows and hides this window", 268)
-welcomeRow("Ctrl click", "Teleports to your click", 290)
-
-welcomeRule(324)
-
-welcomeText({
-    Size = UDim2.new(1, 0, 0, 20),
-    Position = UDim2.fromOffset(0, 336),
-    Font = Enum.Font.SourceSansBold,
+make("TextLabel", {
+    Size = UDim2.new(1, 0, 0, 22),
+    Position = UDim2.fromOffset(0, 78),
+    BackgroundTransparency = 1,
+    Font = Enum.Font.SourceSans,
     Text = "GitHub",
     TextSize = 15,
-    TextColor3 = TEXT,
-})
+    TextColor3 = Color3.fromRGB(210, 210, 210),
+    TextXAlignment = Enum.TextXAlignment.Left,
+}, welcomePage)
 
 local githubBox = make("TextBox", {
     Size = UDim2.new(1, 0, 0, 22),
-    Position = UDim2.fromOffset(0, 360),
+    Position = UDim2.fromOffset(0, 104),
     BackgroundColor3 = Color3.fromRGB(58, 58, 58),
     BorderSizePixel = 0,
     ClearTextOnFocus = false,
