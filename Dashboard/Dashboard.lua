@@ -224,14 +224,15 @@ local screenGui = make("ScreenGui", {
     DisplayOrder = 999,
 }, uiParent)
 
-local window = make("Frame", {
+local window = make("CanvasGroup", {
     Name = "Window",
     Size = UDim2.fromOffset(640, 480),
-    Position = UDim2.new(0.5, -320, 0.5, -240),
+    Position = UDim2.new(0.5, -320, 0.5, -228),
     BackgroundColor3 = Color3.fromRGB(18, 18, 18),
     BackgroundTransparency = 0.08,
     BorderSizePixel = 0,
     Active = true,
+    GroupTransparency = 1,
 }, screenGui)
 
 local titleBar = make("Frame", {
@@ -316,41 +317,98 @@ local welcomePage = make("Frame", {
     BackgroundTransparency = 1,
 }, content)
 
-make("TextLabel", {
+local function welcomeText(props)
+    props.BackgroundTransparency = 1
+    props.Font = props.Font or Enum.Font.SourceSans
+    props.TextXAlignment = props.TextXAlignment or Enum.TextXAlignment.Left
+    return make("TextLabel", props, welcomePage)
+end
+
+local function welcomeRule(y)
+    make("Frame", {
+        Size = UDim2.new(1, 0, 0, 1),
+        Position = UDim2.fromOffset(0, y),
+        BackgroundColor3 = Color3.fromRGB(48, 48, 48),
+        BorderSizePixel = 0,
+    }, welcomePage)
+end
+
+local function welcomeRow(left, right, y)
+    welcomeText({
+        Size = UDim2.fromOffset(88, 22),
+        Position = UDim2.fromOffset(0, y),
+        Text = left,
+        TextSize = 15,
+        TextColor3 = TEXT,
+    })
+    welcomeText({
+        Size = UDim2.new(1, -96, 0, 22),
+        Position = UDim2.fromOffset(96, y),
+        Text = right,
+        TextSize = 15,
+        TextColor3 = MUTED,
+    })
+end
+
+welcomeText({
     Size = UDim2.new(1, 0, 0, 28),
-    BackgroundTransparency = 1,
-    Font = Enum.Font.SourceSans,
     Text = "Welcome",
     TextSize = 22,
     TextColor3 = TEXT,
-    TextXAlignment = Enum.TextXAlignment.Left,
-}, welcomePage)
+})
 
-make("TextLabel", {
-    Size = UDim2.new(1, 0, 0, 22),
-    Position = UDim2.fromOffset(0, 36),
-    BackgroundTransparency = 1,
-    Font = Enum.Font.SourceSans,
+welcomeText({
+    Size = UDim2.new(1, 0, 0, 20),
+    Position = UDim2.fromOffset(0, 28),
     Text = "Jell for Lumber Tycoon 2.",
-    TextSize = 16,
-    TextColor3 = Color3.fromRGB(210, 210, 210),
-    TextXAlignment = Enum.TextXAlignment.Left,
-}, welcomePage)
+    TextSize = 15,
+    TextColor3 = MUTED,
+})
 
-make("TextLabel", {
-    Size = UDim2.new(1, 0, 0, 22),
-    Position = UDim2.fromOffset(0, 78),
-    BackgroundTransparency = 1,
-    Font = Enum.Font.SourceSans,
+welcomeText({
+    Size = UDim2.new(1, 0, 0, 20),
+    Position = UDim2.fromOffset(0, 64),
+    Font = Enum.Font.SourceSansBold,
+    Text = "Scripts",
+    TextSize = 15,
+    TextColor3 = TEXT,
+})
+
+welcomeRow("Catalog", "Item prices", 88)
+welcomeRow("Duper", "Copies items onto your plot", 110)
+welcomeRow("Chopper", "Cuts trees on your land", 132)
+
+welcomeRule(166)
+
+welcomeText({
+    Size = UDim2.new(1, 0, 0, 20),
+    Position = UDim2.fromOffset(0, 178),
+    Font = Enum.Font.SourceSansBold,
+    Text = "Controls",
+    TextSize = 15,
+    TextColor3 = TEXT,
+})
+
+welcomeRow("Name", "Opens that script", 202)
+welcomeRow("Power", "Starts and stops it", 224)
+welcomeRow("Settings", "Lighting, walk, and the toggle key", 246)
+welcomeRow("Tab", "Shows and hides this window", 268)
+welcomeRow("Ctrl click", "Teleports to your click", 290)
+
+welcomeRule(324)
+
+welcomeText({
+    Size = UDim2.new(1, 0, 0, 20),
+    Position = UDim2.fromOffset(0, 336),
+    Font = Enum.Font.SourceSansBold,
     Text = "GitHub",
     TextSize = 15,
-    TextColor3 = Color3.fromRGB(210, 210, 210),
-    TextXAlignment = Enum.TextXAlignment.Left,
-}, welcomePage)
+    TextColor3 = TEXT,
+})
 
 local githubBox = make("TextBox", {
     Size = UDim2.new(1, 0, 0, 22),
-    Position = UDim2.fromOffset(0, 104),
+    Position = UDim2.fromOffset(0, 360),
     BackgroundColor3 = Color3.fromRGB(58, 58, 58),
     BorderSizePixel = 0,
     ClearTextOnFocus = false,
@@ -937,6 +995,16 @@ UserInputService.InputBegan:Connect(function(input)
     end
 end)
 
+local introTween = Services.TweenService:Create(
+    window,
+    TweenInfo.new(0.45, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
+    {
+        GroupTransparency = 0,
+        Position = UDim2.new(0.5, -320, 0.5, -240),
+    }
+)
+introTween:Play()
+
 do
     local dragging = false
     local dragStart
@@ -944,6 +1012,8 @@ do
 
     titleBar.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            introTween:Cancel()
+            window.GroupTransparency = 0
             dragging = true
             dragStart = input.Position
             startPos = window.Position
