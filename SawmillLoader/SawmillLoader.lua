@@ -1,1263 +1,334 @@
 local Services = setmetatable({}, {
-    __index = function(_, index)
+    __index = function(self, index)
         return game:GetService(index)
     end,
 })
 
-local Players = Services.Players
-local RunService = Services.RunService
-local UserInputService = Services.UserInputService
-local Workspace = Services.Workspace
-local ReplicatedStorage = Services.ReplicatedStorage
-
-local Player = Players.LocalPlayer
-
-local CONFIG_DIR = "LT2Scripts"
-local CONFIG_FILE = CONFIG_DIR .. "/sawmill.json"
-
-local TEXT = Color3.fromRGB(230, 230, 230)
-local MUTED = Color3.fromRGB(160, 160, 160)
-local RED = Color3.fromRGB(210, 70, 70)
-local GREEN = Color3.fromRGB(70, 190, 105)
-
-local AURA_SEGMENTS = 64
-local SELL_POSITION = Vector3.new(426, 10, 443.71)
-
-local WOOD_TYPES = {
-    "Generic", "Cherry", "Birch", "Oak", "Walnut", "Koa", "Pine", "Palm", "Fir",
-    "Volcano", "Frost", "GreenSwampy", "GoldSwampy", "SnowGlow", "CaveCrawler",
-    "LoneCave", "Spook", "Sinister",
-}
-local woodSet = {}
-for _, name in ipairs(WOOD_TYPES) do
-    woodSet[name] = true
+function round(val)
+    return math.floor( (val * 10^2) + 0.5) / (10^2)
 end
+
+local Players           = Services.Players
+local Player            = Players.LocalPlayer
+local char      = Player.Character
+local root      = char and char:FindFirstChild("HumanoidRootPart")
+local ClientUserSettings = require(game.Players.LocalPlayer:WaitForChild("PlayerScripts"):WaitForChild("ClientUserSettings"));
+local MAX_STUDS = 8
+local sawmillOwner = "Ivan7274929" --Cuteka307" -- --1Canman55
+local woodOwner = "Ivan7274929"
+local treeType = "Oak"
+local originalInteractValue = nil
+
+local treeTypes = {
+    ["Generic"]        = true,
+    ["Cherry"]         = false,
+    ["Birch"]          = false,
+    ["Oak"]            = true,
+    ["Walnut"]         = false,
+    ["Koa"]            = false,
+    ["Pine"]           = false,
+    ["Palm"]           = false,
+    ["Fir"]            = false,
+    ["Volcano"]        = false,
+    ["Frost"]          = false,
+    ["GreenSwampy"]    = false,
+    ["GoldSwampy"]     = false,
+    ["SnowGlow"]       = false,
+    ["CaveCrawler"]    = false,
+    ["LoneCave"]       = false,
+    ["Spook"]          = false,
+    ["Sinister"]       = false,
+}
 
 local sawmillProperties = {
-    Sawmill = { x = 2.6, y = 2.6, length = 10 },
-    Sawmill2 = { x = 2.6, y = 2.6, length = 10 },
-    Sawmill4 = { x = 2.6, y = 2.6, length = 10 },
-    Sawmill4L = { x = 2.6, y = 2.6, length = 18 },
+    Sawmill = {
+        x = 2.6,
+        y = 2.6,
+        length = 10
+    },
+    Sawmill2 = {
+        x = 2.6,
+        y = 2.6,
+        length = 10
+    },
+    Sawmill4 = {
+        x = 2.6,
+        y = 2.6,
+        length = 10
+    },
+    Sawmill4L = {
+        x = 2.6,
+        y = 2.6,
+        length = 18
+    }
 }
 
-local sawmillOwner
-local woodOwner
-local selectedWood = "Birch"
-local selectedMillKey
-local selectedModel
-local radius = 10
-local running = false
-local mounted = false
-local runToken = 0
-local statusText = "Idle"
-local lastLogErr
 
-local ClientUserSettings
-local permittedPlayer
-local savedInteract
-
-local auraConn
-local auraFolder
-local auraParts = {}
-local auraStyle = "off"
-local previewTransparency = 0.4
-local fadeFrom = 0.4
-local fadeStarted = 0
-local millHighlight
-local highlightDismissed = false
-local AURA_PREVIEW = Color3.fromRGB(0, 170, 255)
-local AURA_RUN = Color3.fromRGB(70, 210, 110)
-
-local root
-local sawmillCaption
-local woodCaption
-local woodTypeCaption
-local millCaption
-local startBtn
-local statusLabel
-local menu
-local backdrop
-local menuKind
-local menuY = 0
-local guiConns = {}
-
-local api = {}
-
-local function make(className, props, parent)
-    local inst = Instance.new(className)
-    for key, value in pairs(props) do
-        inst[key] = value
-    end
-    inst.Parent = parent
-    return inst
-end
-
-local function track(conn)
-    table.insert(guiConns, conn)
-    return conn
-end
-
-local function clearConns()
-    for _, conn in ipairs(guiConns) do
-        conn:Disconnect()
-    end
-    table.clear(guiConns)
-end
-
-local function round(val)
-    return math.floor((val * 100) + 0.5) / 100
-end
-
-local function currentRoot()
-    local character = Player.Character
-    if not character then
-        return nil
-    end
-    return character:FindFirstChild("HumanoidRootPart")
-end
-
-local function findPlayer(name)
-    if type(name) ~= "string" or name == "" then
-        return nil
-    end
-    for _, player in ipairs(Players:GetPlayers()) do
+function findPlayer(name)
+    -- DisplayName is not unique
+    -- Name is unique
+    for _, player in pairs(Players:GetChildren()) do
         if player.Name == name then
             return player
         end
     end
+
     return nil
 end
 
-local function playerLabel(player)
-    local display = player.DisplayName
-    if display == "" then
-        display = player.Name
-    end
-    return display .. " (@" .. player.Name .. ")"
-end
+function getPermissionDataInteractValue(player)
+    local userId = tostring(player.UserId)
+    local playerSettings = ClientUserSettings.GetSettings()
+    local permissionData = playerSettings.UserPermissionList[userId]
 
-local function ownerLabel(name)
-    if type(name) ~= "string" or name == "" then
-        return "Select"
-    end
-    local player = findPlayer(name)
-    if not player then
-        return "@" .. name
-    end
-    return playerLabel(player)
-end
-
-local function sortedPlayers()
-    local list = Players:GetPlayers()
-    table.sort(list, function(a, b)
-        local aKey = string.lower(a.DisplayName .. "\0" .. a.Name)
-        local bKey = string.lower(b.DisplayName .. "\0" .. b.Name)
-        return aKey < bKey
-    end)
-    return list
-end
-
-local function readSavedConfig()
-    if type(readfile) ~= "function" then
+    if not permissionData then
         return nil
     end
-    if type(isfile) == "function" and not isfile(CONFIG_FILE) then
-        return nil
-    end
-    local ok, raw = pcall(readfile, CONFIG_FILE)
-    if not ok or type(raw) ~= "string" or raw == "" then
-        return nil
-    end
-    local decodedOk, data = pcall(function()
-        return Services.HttpService:JSONDecode(raw)
-    end)
-    if decodedOk and type(data) == "table" then
-        return data
-    end
-    return nil
+
+    return permissionData.Interact
 end
 
-local function saveConfig()
-    if type(writefile) ~= "function" then
-        return
-    end
-    if type(makefolder) == "function" and type(isfolder) == "function" and not isfolder(CONFIG_DIR) then
-        pcall(makefolder, CONFIG_DIR)
-    end
-    local payload = {
-        sawmillOwner = sawmillOwner,
-        woodOwner = woodOwner,
-        wood = selectedWood,
-        sawmill = selectedMillKey,
-    }
-    local encodedOk, encoded = pcall(function()
-        return Services.HttpService:JSONEncode(payload)
-    end)
-    if encodedOk then
-        pcall(writefile, CONFIG_FILE, encoded)
-    end
-end
+function changeUserPermissionInteract(player, value)
+    local userId = tostring(player.UserId)
 
-local function applySaved(data)
-    if type(data) ~= "table" then
-        return
-    end
-    if type(data.sawmillOwner) == "string" and data.sawmillOwner ~= "" then
-        sawmillOwner = data.sawmillOwner
-    end
-    if type(data.woodOwner) == "string" and data.woodOwner ~= "" then
-        woodOwner = data.woodOwner
-    end
-    if type(data.wood) == "string" and woodSet[data.wood] then
-        selectedWood = data.wood
-    end
-    if type(data.sawmill) == "string" and data.sawmill ~= "" then
-        selectedMillKey = data.sawmill
-    end
-end
-
-applySaved(readSavedConfig())
-
-local function settingsModule()
-    if ClientUserSettings then
-        return ClientUserSettings
-    end
-    local scripts = Player:FindFirstChild("PlayerScripts")
-    local module = scripts and scripts:FindFirstChild("ClientUserSettings")
-    if not module then
-        return nil
-    end
-    local ok, result = pcall(require, module)
-    if ok then
-        ClientUserSettings = result
-        return result
-    end
-    return nil
-end
-
-local function setInteract(player, value)
-    local settingsApi = settingsModule()
-    if not settingsApi or not player then
-        return false
-    end
     if value == nil then
         value = false
     end
-    local ok = pcall(function()
-        settingsApi.SendUpdate("UserPermission", tostring(player.UserId), "Interact", value)
-    end)
-    return ok
+
+    ClientUserSettings.SendUpdate("UserPermission", userId, "Interact", value)
 end
 
-local function getInteract(player)
-    local settingsApi = settingsModule()
-    if not settingsApi or not player then
-        return nil, false
-    end
-    local ok, playerSettings = pcall(function()
-        return settingsApi.GetSettings()
-    end)
-    if not ok or type(playerSettings) ~= "table" then
-        return nil, false
-    end
-    local list = playerSettings.UserPermissionList
-    if type(list) ~= "table" then
-        return nil, true
-    end
-    local data = list[tostring(player.UserId)]
-    if type(data) ~= "table" then
-        return nil, true
-    end
-    return data.Interact, true
-end
+function getPlayerSawmills(player)
+    local sawmills = {}
+    
+    for _, v in pairs(game.Workspace.PlayerModels:getChildren()) do
+        if v:FindFirstChild('Owner') and v.Owner.Value == player then
+            if v:findFirstChild('ItemName') then
+                --print(v.ItemName.Value)
+                if v.ItemName.Value == 'Sawmill' or v.ItemName.Value == 'Sawmill2' or v.ItemName.Value == 'Sawmill4L' or v.ItemName.Value == 'Sawmill4' then
+                    -- grab 2 vectors to determine which way the conveyor belt is moving
+                    local pos1
+                    local pos2
 
-local function restorePermission()
-    local player = permittedPlayer
-    local previous = savedInteract
-    permittedPlayer = nil
-    savedInteract = nil
-    if player and previous ~= true then
-        setInteract(player, previous)
-    end
-end
+                    for _, vv in pairs(v.Conveyor.Model:getChildren()) do
+                        if pos1 == nil then
+                            pos1 = vv.Position
+                        elseif pos2 == nil then
+                            pos2 = vv.Position
+                        else
+                            break
+                        end
+                    end
 
-local function allow(player)
-    if permittedPlayer == player then
-        return true
-    end
-    restorePermission()
-    local current, ok = getInteract(player)
-    if not ok then
-        return false
-    end
-    if current ~= true and not setInteract(player, true) then
-        return false
-    end
-    permittedPlayer = player
-    savedInteract = current
-    return true
-end
+                    -- calculate which way the conveyor belt is moving. Changes should be seen in X and Z, Y diff should
+                    -- always be 0
+                    local adjustment = 5
+                    local diff = Vector3.new(round(pos2.X - pos1.X), round(pos2.Y - pos1.Y), round(pos2.Z - pos1.Z))
+                    local dir = Vector3.new(diff.x, 0, diff.z)
+                    local rot
 
-local function destroyAura()
-    if auraFolder then
-        auraFolder:Destroy()
-        auraFolder = nil
-    end
-    table.clear(auraParts)
-    local leftover = Workspace:FindFirstChild("SawmillLoaderAura")
-    if leftover then
-        leftover:Destroy()
-    end
-end
+                    if math.abs(dir.X) >= math.abs(dir.Z) then
+                        	-- infeed is along X → roll around Z
+                        rot = CFrame.Angles(0, 0, math.rad(90) * math.sign(dir.X ~= 0 and dir.X or 1))
+                    else
+                        -- infeed is along Z → pitch around X
+                        rot = CFrame.Angles(math.rad(90) * math.sign(dir.Z ~= 0 and dir.Z or 1), 0, 0)
+                    end
 
-local function auraAppearance()
-    if auraStyle == "run" then
-        return AURA_RUN, 0.15
-    end
-    return AURA_PREVIEW, previewTransparency
-end
+                    -- move the wood
+                    local blockageAlertPosition = Vector3.new(
+                        v.BlockageAlert.Position.X,
+                        v.BlockageAlert.Position.Y - 1,
+                        v.BlockageAlert.Position.Z
+                    )
+                    local tpPosition = CFrame.new(blockageAlertPosition) + Vector3.new(diff.X * adjustment, -0.025, diff.Z * adjustment)
+                    --game.Players.LocalPlayer.Character.HumanoidRootPart.CFrame = tpPosition
 
-local function drawAura(center, studs)
-    if auraStyle == "off" then
-        return
-    end
-    local color, transparency = auraAppearance()
-    if not auraFolder or not auraFolder.Parent then
-        auraFolder = Instance.new("Folder")
-        auraFolder.Name = "SawmillLoaderAura"
-        auraFolder.Parent = Workspace
-        table.clear(auraParts)
-        for index = 1, AURA_SEGMENTS do
-            local segment = Instance.new("Part")
-            segment.Name = "Segment"
-            segment.Anchored = true
-            segment.CanCollide = false
-            segment.CanQuery = false
-            segment.CanTouch = false
-            segment.CastShadow = false
-            segment.Material = Enum.Material.Neon
-            segment.Color = color
-            segment.Transparency = transparency
-            segment.Parent = auraFolder
-            auraParts[index] = segment
-        end
-    end
+                    --print(v.XLabel.SurfaceGui.TextLabel.Text)
+                    --print(v.YLabel.SurfaceGui.TextLabel.Text)
 
-    for index = 0, AURA_SEGMENTS - 1 do
-        local angle1 = (index / AURA_SEGMENTS) * math.pi * 2
-        local angle2 = ((index + 1) / AURA_SEGMENTS) * math.pi * 2
-        local p1 = center + Vector3.new(math.cos(angle1) * studs, 0, math.sin(angle1) * studs)
-        local p2 = center + Vector3.new(math.cos(angle2) * studs, 0, math.sin(angle2) * studs)
-        local midpoint = (p1 + p2) / 2
-        local segment = auraParts[index + 1]
-        if segment then
-            segment.Color = color
-            segment.Transparency = transparency
-            segment.Size = Vector3.new(0.45, 0.35, math.max((p2 - p1).Magnitude, 0.05))
-            segment.CFrame = CFrame.lookAt(midpoint, p2)
-        end
-    end
-end
-
-local function floorPoint(rootPart)
-    local origin = rootPart.Position
-    local params = RaycastParams.new()
-    params.FilterType = Enum.RaycastFilterType.Exclude
-    local ignore = {}
-    if Player.Character then
-        table.insert(ignore, Player.Character)
-    end
-    if auraFolder then
-        table.insert(ignore, auraFolder)
-    end
-    params.FilterDescendantsInstances = ignore
-    local hit = Workspace:Raycast(origin, Vector3.new(0, -80, 0), params)
-    local ground = origin.Y - 3
-    if hit then
-        local drop = origin.Y - hit.Position.Y
-        if drop >= 0 and drop < 12 then
-            ground = hit.Position.Y
-        end
-    end
-    return Vector3.new(origin.X, ground + 0.4, origin.Z)
-end
-
-local function wantsAura()
-    return auraStyle == "pulse" or auraStyle == "fade" or auraStyle == "run"
-end
-
-local function stopAuraConnection()
-    if auraConn then
-        auraConn:Disconnect()
-        auraConn = nil
-    end
-end
-
-local function stepAura()
-    if auraStyle == "pulse" then
-        local wave = (math.sin(os.clock() * 2.6) + 1) / 2
-        previewTransparency = 0.05 + wave * 0.55
-    elseif auraStyle == "fade" then
-        local alpha = math.clamp((os.clock() - fadeStarted) / 0.55, 0, 1)
-        previewTransparency = fadeFrom + (1 - fadeFrom) * alpha
-        if alpha >= 1 then
-            auraStyle = "off"
-            stopAuraConnection()
-            destroyAura()
-            return
-        end
-    end
-    if not wantsAura() then
-        return
-    end
-    local rootPart = currentRoot()
-    if not rootPart then
-        return
-    end
-    drawAura(floorPoint(rootPart), radius)
-end
-
-local function refreshAuraBinding()
-    if wantsAura() then
-        if not auraConn then
-            auraConn = RunService.Heartbeat:Connect(stepAura)
-        end
-        stepAura()
-    else
-        stopAuraConnection()
-        destroyAura()
-    end
-end
-
-local function showRadiusPreview()
-    auraStyle = "pulse"
-    refreshAuraBinding()
-end
-
-local function hideRadiusPreview()
-    if running then
-        auraStyle = "run"
-        refreshAuraBinding()
-        return
-    end
-    fadeFrom = previewTransparency
-    fadeStarted = os.clock()
-    auraStyle = "fade"
-    refreshAuraBinding()
-end
-
-local function readSawmill(model, owner)
-    local itemName = model:FindFirstChild("ItemName")
-    local item = itemName and itemName.Value
-    if not sawmillProperties[item] then
-        return nil
-    end
-    local ownerValue = model:FindFirstChild("Owner")
-    if not ownerValue or ownerValue.Value ~= owner then
-        return nil
-    end
-
-    local conveyor = model:FindFirstChild("Conveyor")
-    local conveyorModel = conveyor and conveyor:FindFirstChild("Model")
-    local settings = model:FindFirstChild("Settings")
-    local alert = model:FindFirstChild("BlockageAlert")
-    local dimX = settings and settings:FindFirstChild("DimX")
-    local dimZ = settings and settings:FindFirstChild("DimZ")
-    if not (conveyorModel and dimX and dimZ and alert and alert:IsA("BasePart")) then
-        return nil
-    end
-
-    local pos1
-    local pos2
-    for _, part in pairs(conveyorModel:GetChildren()) do
-        local ok, position = pcall(function()
-            return part.Position
-        end)
-        if ok and typeof(position) == "Vector3" then
-            if not pos1 then
-                pos1 = position
-            elseif not pos2 then
-                pos2 = position
-            else
-                break
+                    table.insert(sawmills, {
+                        Name = v.ItemName.Value,
+                        tpPosition = tpPosition.p,
+                        x   = v.Settings.DimX.Value, --v.XLabel.SurfaceGui.TextLabel.Text,
+                        y   = v.Settings.DimZ.Value, --v.YLabel.SurfaceGui.TextLabel.Text
+                        rot = rot
+                    })
+                end
             end
         end
     end
-    if not pos1 or not pos2 then
-        return nil
-    end
 
-    local diff = Vector3.new(round(pos2.X - pos1.X), round(pos2.Y - pos1.Y), round(pos2.Z - pos1.Z))
-    local dir = Vector3.new(diff.X, 0, diff.Z)
-    local rot
-    if math.abs(dir.X) >= math.abs(dir.Z) then
-        rot = CFrame.Angles(0, 0, math.rad(90) * math.sign(dir.X ~= 0 and dir.X or 1))
-    else
-        rot = CFrame.Angles(math.rad(90) * math.sign(dir.Z ~= 0 and dir.Z or 1), 0, 0)
-    end
-
-    local adjustment = 5
-    local blockage = Vector3.new(alert.Position.X, alert.Position.Y - 1, alert.Position.Z)
-    local tp = CFrame.new(blockage) + Vector3.new(diff.X * adjustment, -0.025, diff.Z * adjustment)
-    local position = alert.Position
-    if model:IsA("Model") then
-        position = model:GetPivot().Position
-    end
-
-    return {
-        Name = item,
-        model = model,
-        position = position,
-        tpPosition = tp.Position,
-        x = dimX.Value,
-        y = dimZ.Value,
-        rot = rot,
-    }
-end
-
-local function millKey(entry)
-    local position = entry.position
-    return string.format(
-        "%s|%d|%d|%d",
-        entry.Name,
-        math.floor(position.X + 0.5),
-        math.floor(position.Y + 0.5),
-        math.floor(position.Z + 0.5)
-    )
-end
-
-local function millLabels(list)
-    local totals = {}
-    for _, entry in ipairs(list) do
-        totals[entry.Name] = (totals[entry.Name] or 0) + 1
-    end
-    local seen = {}
-    local labels = {}
-    for index, entry in ipairs(list) do
-        local count = (seen[entry.Name] or 0) + 1
-        seen[entry.Name] = count
-        if totals[entry.Name] > 1 then
-            labels[index] = entry.Name .. " " .. tostring(count)
-        else
-            labels[index] = entry.Name
-        end
-    end
-    return labels
-end
-
-local function findMill(list)
-    for index, entry in ipairs(list) do
-        if selectedModel and entry.model == selectedModel then
-            return entry, index
-        end
-    end
-    if not selectedMillKey then
-        return nil, nil
-    end
-    for index, entry in ipairs(list) do
-        if millKey(entry) == selectedMillKey then
-            return entry, index
-        end
-    end
-    return nil, nil
-end
-
-local function getPlayerSawmills(owner)
-    local sawmills = {}
-    local models = Workspace:FindFirstChild("PlayerModels")
-    if not models then
-        return sawmills
-    end
-    for _, model in ipairs(models:GetChildren()) do
-        local ok, entry = pcall(readSawmill, model, owner)
-        if ok and entry then
-            table.insert(sawmills, entry)
-        end
-    end
     return sawmills
 end
 
-local function eachLoaderHighlight(callback)
-    if millHighlight then
-        callback(millHighlight)
-    end
-    local models = Workspace:FindFirstChild("PlayerModels")
-    if not models then
-        return
-    end
-    for _, desc in ipairs(models:GetDescendants()) do
-        if desc:IsA("Highlight") and desc.Name == "SawmillLoaderHighlight" and desc ~= millHighlight then
-            callback(desc)
-        end
-    end
-end
+function moveLogs(player, sawmills)
+    for _, v in pairs(game.Workspace.LogModels:getChildren()) do
+        if v:FindFirstChild('Owner') and (v.Owner.Value == nil or v.Owner.Value == player) then
+            if v.Name ~= 'PlaceholderPart' then
+                local timeout = 0
+                local woodSection = v:findFirstChild('WoodSection')
 
-local function clearHighlight()
-    eachLoaderHighlight(function(highlight)
-        if highlight.Parent then
-            highlight:Destroy()
-        end
-    end)
-    millHighlight = nil
-end
-
-local function dismissHighlight()
-    highlightDismissed = true
-    local fading = {}
-    eachLoaderHighlight(function(highlight)
-        if highlight.Parent then
-            table.insert(fading, highlight)
-        end
-    end)
-    millHighlight = nil
-    if #fading == 0 then
-        return
-    end
-    task.spawn(function()
-        local started = os.clock()
-        while os.clock() - started < 0.45 do
-            local alpha = math.clamp((os.clock() - started) / 0.45, 0, 1)
-            for _, highlight in ipairs(fading) do
-                if highlight.Parent then
-                    highlight.FillTransparency = 0.45 + (1 - 0.45) * alpha
-                    highlight.OutlineTransparency = alpha
+                if v:findFirstChild("TreeClass") and not treeTypes[v.TreeClass.Value] then
+                    print(v.TreeClass.Value .. " is being skipped...")
+                    continue
                 end
-            end
-            task.wait()
-        end
-        for _, highlight in ipairs(fading) do
-            if highlight.Parent then
-                highlight:Destroy()
-            end
-        end
-    end)
-end
 
-local function highlightModel(model, force)
-    clearHighlight()
-    if running or not model or not model.Parent then
-        return
-    end
-    if highlightDismissed and not force then
-        return
-    end
-    local highlight = Instance.new("Highlight")
-    highlight.Name = "SawmillLoaderHighlight"
-    highlight.Adornee = model
-    highlight.FillColor = GREEN
-    highlight.OutlineColor = Color3.fromRGB(190, 255, 205)
-    highlight.FillTransparency = 0.45
-    highlight.OutlineTransparency = 0
-    highlight.Parent = model
-    millHighlight = highlight
-end
-
-local function refreshHighlight()
-    if highlightDismissed or running then
-        clearHighlight()
-        return
-    end
-    local owner = findPlayer(sawmillOwner)
-    if not owner then
-        clearHighlight()
-        return
-    end
-    local entry = findMill(getPlayerSawmills(owner))
-    if entry then
-        selectedModel = entry.model
-        highlightModel(entry.model)
-    else
-        clearHighlight()
-    end
-end
-
-local function flatDistance(a, b)
-    return ((a - b) * Vector3.new(1, 0, 1)).Magnitude
-end
-
-local function dragRemote()
-    local interaction = ReplicatedStorage:FindFirstChild("Interaction")
-    return interaction and interaction:FindFirstChild("ClientIsDragging")
-end
-
-local function waitAlive(seconds, alive)
-    local left = math.max(seconds, 0)
-    while left > 0 and alive() do
-        local slice = math.min(left, 0.1)
-        task.wait(slice)
-        left -= slice
-    end
-end
-
-local function moveLogs(player, sawmills, alive)
-    local logs = Workspace:FindFirstChild("LogModels")
-    local remote = dragRemote()
-    if not logs or not remote or #sawmills == 0 then
-        return
-    end
-
-    local function loadLog(log)
-        local ownerValue = log:FindFirstChild("Owner")
-        if not ownerValue or log.Name == "PlaceholderPart" then
-            return
-        end
-        if ownerValue.Value ~= nil and ownerValue.Value ~= player then
-            return
-        end
-
-        local treeClass = log:FindFirstChild("TreeClass")
-        if not treeClass or treeClass.Value ~= selectedWood then
-            return
-        end
-
-        local woodSection = log:FindFirstChild("WoodSection")
-        local target = log:FindFirstChild("Main") or log:FindFirstChildWhichIsA("BasePart")
-        if not (woodSection and woodSection:IsA("BasePart") and target and target:IsA("BasePart")) then
-            return
-        end
-
-        local rootPart = currentRoot()
-        if not rootPart or not alive() then
-            return
-        end
-        if flatDistance(rootPart.Position, target.Position) > radius then
-            return
-        end
-
-        if woodSection.Size.X * woodSection.Size.Z < 0.24 then
-            log:MoveTo(SELL_POSITION)
-            return
-        end
-        if woodSection.Size.X > 2.6 or woodSection.Size.Z > 2.6 then
-            return
-        end
-
-        local chosen
-        local highestSize = 0
-        local woodVolume = woodSection.Size.X * woodSection.Size.Z * woodSection.Size.Y
-        for _, sawmill in ipairs(sawmills) do
-            local sawmillSize = sawmill.x * sawmill.y * 0.25
-            if woodVolume >= sawmillSize and sawmillSize > highestSize then
-                highestSize = sawmillSize
-                chosen = sawmill
-            end
-        end
-        if not chosen then
-            return
-        end
-        local props = sawmillProperties[chosen.Name]
-        if not props or woodSection.Size.Y > props.length then
-            return
-        end
-        if not alive() then
-            return
-        end
-
-        woodSection.CFrame = CFrame.new(chosen.tpPosition) * chosen.rot
-        remote:FireServer(log)
-        waitAlive(target.Size.Y / 2, alive)
-        if alive() then
-            remote:FireServer(nil)
-        end
-    end
-
-    for _, log in ipairs(logs:GetChildren()) do
-        if not alive() then
-            return
-        end
-        local ok, err = pcall(loadLog, log)
-        if not ok then
-            local message = tostring(err)
-            if message ~= lastLogErr then
-                lastLogErr = message
-                warn("[Jell] SawmillLoader " .. message)
-            end
-        end
-    end
-end
-
-local function step(alive)
-    local sawmillPlayer = findPlayer(sawmillOwner)
-    local woodPlayer = findPlayer(woodOwner)
-    if not sawmillPlayer or not woodPlayer then
-        restorePermission()
-        api.setStatus("Select players")
-        return
-    end
-    if not allow(sawmillPlayer) then
-        api.setStatus("No permissions")
-        return
-    end
-    local sawmills = getPlayerSawmills(sawmillPlayer)
-    if #sawmills == 0 then
-        api.setStatus("No sawmills")
-        return
-    end
-    api.setStatus("Running")
-    moveLogs(woodPlayer, sawmills, alive)
-end
-
-function api.setStatus(text)
-    statusText = text
-    if statusLabel and statusLabel.Parent then
-        statusLabel.Text = text
-    end
-end
-
-local function paintRun()
-    if not (startBtn and startBtn.Parent) then
-        return
-    end
-    if running then
-        startBtn.Text = "Stop"
-        startBtn.BackgroundColor3 = RED
-        startBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    else
-        startBtn.Text = "Start"
-        startBtn.BackgroundColor3 = GREEN
-        startBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    end
-end
-
-local function millCaptionText()
-    local owner = findPlayer(sawmillOwner)
-    if not owner then
-        return "Select"
-    end
-    local list = getPlayerSawmills(owner)
-    local entry, index = findMill(list)
-    if not entry then
-        return "Select"
-    end
-    return millLabels(list)[index]
-end
-
-local function paintOwners()
-    if sawmillCaption and sawmillCaption.Parent then
-        sawmillCaption.Text = ownerLabel(sawmillOwner)
-    end
-    if woodCaption and woodCaption.Parent then
-        woodCaption.Text = ownerLabel(woodOwner)
-    end
-    if woodTypeCaption and woodTypeCaption.Parent then
-        woodTypeCaption.Text = selectedWood
-    end
-    if millCaption and millCaption.Parent then
-        millCaption.Text = millCaptionText()
-    end
-end
-
-local function beginRun()
-    if running then
-        return
-    end
-    running = true
-    runToken += 1
-    local token = runToken
-    lastLogErr = nil
-    api.setStatus("Running")
-    dismissHighlight()
-    auraStyle = "run"
-    paintRun()
-    refreshAuraBinding()
-    task.spawn(function()
-        local function alive()
-            return running and token == runToken
-        end
-        while alive() do
-            local stepOk, stepErr = xpcall(function()
-                step(alive)
-            end, debug.traceback)
-            if not alive() then
-                break
-            end
-            if not stepOk then
-                local message = tostring(stepErr)
-                if message ~= lastLogErr then
-                    lastLogErr = message
-                    warn("[Jell] SawmillLoader " .. message)
+                local target = v:FindFirstChild("Main") or v:FindFirstChildWhichIsA("BasePart")
+                local flat = (root.Position - target.Position) * Vector3.new(1, 0, 1)
+                if flat.Magnitude > MAX_STUDS then
+                    continue
                 end
-                api.setStatus("Error")
-                task.wait(1)
-            else
-                lastLogErr = nil
-                task.wait(0.25)
-            end
-        end
-    end)
-end
 
-local function releaseDrag()
-    pcall(function()
-        ReplicatedStorage.Interaction.ClientIsDragging:FireServer(nil)
-    end)
-end
+                if woodSection.Size.X * woodSection.Size.Z < 0.24 then
+                    -- if the woodSection is too tiny to process then just sell the bitch
+                    v:moveTo(Vector3.new(426.0,10.0,443.71))
+                else
+                    if woodSection.Size.X > 2.6 or woodSection.Size.Z > 2.6 then
+                        print('skipping because its too large: ')
+                        print(woodSection.Size)
+                        --v:MoveTo(game.Players.LocalPlayer.Character.Torso.Position + Vector3.new(0,4,0))
+                    else
+                        local highestSawmill
+                        local highestSize = 0
 
-local function endRun()
-    local wasRunning = running
-    running = false
-    runToken += 1
-    releaseDrag()
-    pcall(restorePermission)
-    if wasRunning then
-        api.setStatus("Stopped")
-    end
-    auraStyle = "off"
-    paintRun()
-    refreshAuraBinding()
-end
+                        for i, sawmill in pairs(sawmills) do
+                            local woodVolume = woodSection.Size.X * woodSection.Size.Z * woodSection.Size.Y
+                            local sawmillSize = sawmill.x * sawmill.y * 0.25
 
-function api.start()
-end
+                            if woodVolume >= sawmillSize and sawmillSize > highestSize then
+                                highestSize = sawmillSize
+                                highestSawmill = i
+                            end
+                        end
 
-function api.stop()
-    endRun()
-end
+                        if highestSawmill == nil then
+                            print('Log too small to fit in any saw mill')
+                        else
+                            local chosenSawmill = sawmills[highestSawmill]
 
-local function closeMenu()
-    local wasOpen = menuKind ~= nil
-    menuKind = nil
-    if menu then
-        menu:Destroy()
-        menu = nil
-    end
-    if backdrop then
-        backdrop:Destroy()
-        backdrop = nil
-    end
-    if wasOpen and not running then
-        refreshHighlight()
-    end
-end
+                            if not chosenSawmill and chosenSawmill.Name ~= nil then
+                                print("Unable to find chosen sawmill")
+                                continue
+                            end
 
-local function setOwner(kind, name)
-    if kind == "sawmill" then
-        if sawmillOwner ~= name then
-            selectedMillKey = nil
-            selectedModel = nil
-        end
-        sawmillOwner = name
-        highlightDismissed = false
-    else
-        woodOwner = name
-    end
-    paintOwners()
-    saveConfig()
-    refreshHighlight()
-end
+                            local sawmillProps = sawmillProperties[chosenSawmill.Name]
 
-local function setWood(name)
-    if not woodSet[name] then
-        return
-    end
-    selectedWood = name
-    paintOwners()
-    saveConfig()
-end
+                            if not sawmillProps then
+                                print("Unable to find sawmill props")
+                                continue
+                            end
 
-local function setMill(entry)
-    highlightDismissed = false
-    selectedModel = entry.model
-    selectedMillKey = millKey(entry)
-    paintOwners()
-    saveConfig()
-    refreshHighlight()
-end
+                            local longestLogLength = sawmillProps.length
 
-local function openMenu(kind, y)
-    closeMenu()
-    if not root then
-        return
-    end
-    menuKind = kind
-    menuY = y
+                            if woodSection.Size.Y > longestLogLength then
+                                print("Log is too long! Cut down and try again")
+                                continue
+                            end
 
-    backdrop = make("TextButton", {
-        Size = UDim2.fromScale(1, 1),
-        BackgroundTransparency = 1,
-        Text = "",
-        AutoButtonColor = false,
-        ZIndex = 2,
-    }, root)
-    backdrop.MouseButton1Click:Connect(function()
-        task.defer(closeMenu)
-    end)
+                            --print(sawmills[highestSawmill])
 
-    local rows = {}
-    if kind == "woodType" then
-        for _, name in ipairs(WOOD_TYPES) do
-            local picked = name
-            table.insert(rows, {
-                text = picked,
-                selected = picked == selectedWood,
-                choose = function()
-                    setWood(picked)
-                end,
-            })
-        end
-    elseif kind == "mill" then
-        local owner = findPlayer(sawmillOwner)
-        local mills = owner and getPlayerSawmills(owner) or {}
-        local labels = millLabels(mills)
-        for index, entry in ipairs(mills) do
-            local picked = entry
-            table.insert(rows, {
-                text = labels[index],
-                selected = picked.model == selectedModel or millKey(picked) == selectedMillKey,
-                choose = function()
-                    setMill(picked)
-                end,
-                hover = function()
-                    highlightModel(picked.model, true)
-                end,
-                unhover = function()
-                    if running or highlightDismissed then
-                        clearHighlight()
-                        return
+                            timeout = target.Size.Y / 2
+                            woodSection.CFrame = CFrame.new(sawmills[highestSawmill].tpPosition) * sawmills[highestSawmill].rot
+                            game.ReplicatedStorage.Interaction.ClientIsDragging:FireServer(v)
+                            print('move log')
+                        end
                     end
-                    refreshHighlight()
-                end,
-            })
+                end
+
+                task.wait(timeout)
+            end
         end
-    else
-        local current = kind == "sawmill" and sawmillOwner or woodOwner
-        for _, player in ipairs(sortedPlayers()) do
-            local picked = player
-            table.insert(rows, {
-                text = playerLabel(picked),
-                selected = picked.Name == current,
-                choose = function()
-                    setOwner(kind, picked.Name)
-                end,
-            })
+    end
+end
+
+local function drawAura(centerPosition, radius)
+    local segments = 64
+    local thickness = 0.15
+    local heigh = 0.1
+
+    local folder = Instance.new("Folder")
+    folder.Name = "AuraCircle"
+    folder.Parent = workspace
+
+    for i = 0, segments - 1 do
+        local angle1 = (i / segments) * math.pi * 2
+        local angle2 = ((i + 1) / segments) * math.pi * 2
+
+        local p1 = centerPosition + Vector3.new(
+            math.cos(angle1) * radius,
+            0,
+            math.sin(angle1) * radius
+        )
+
+        local p2 = centerPosition + Vector3.new(
+            math.cos(angle2) * radius,
+            0,
+            math.sin(angle2) * radius
+        )
+
+        local midpoint = (p1 + p2) / 2
+        local length = (p2 - p1).Magnitude
+
+        local segment = Instance.new("Part")
+        segment.Anchored = true
+        segment.CanCollide = false
+        segment.CanQuery = false
+        segment.CanTouch = false
+
+        segment.Material = Enum.Material.Neon
+        segment.Color = Color3.fromRGB(0, 170, 255)
+        segment.Transparency = 0.25
+
+        segment.Size = Vector3.new(
+            thickness,
+            heigh,
+            length
+        )
+
+        segment.CFrame = CFrame.lookAt(midpoint, p2)
+
+        segment.Parent = folder
+    end
+
+    return folder
+end
+
+function main()
+    drawAura(root.Position, MAX_STUDS)
+    local sawmillPlayer = findPlayer(sawmillOwner)
+
+    if not sawmillPlayer then
+        print("Unable to find the Sawmill Owner!")
+        return
+    end
+
+    local woodPlayer = findPlayer(woodOwner)
+
+    if not woodPlayer then
+        print("Unable to find the Wood Owner!")
+        return
+    end
+
+    originalInteractValue = getPermissionDataInteractValue(sawmillPlayer)
+    if originalInteractValue ~= true then
+        changeUserPermissionInteract(sawmillPlayer, true)
+    end
+
+    local sawmills = getPlayerSawmills(sawmillPlayer)
+    moveLogs(woodPlayer, sawmills)
+
+    if originalInteractValue ~= true then
+        changeUserPermissionInteract(sawmillPlayer, originalInteractValue)
+    end
+
+    for _, v in workspace:GetChildren() do
+        if v:IsA("Folder") and v.Name == "AuraCircle" then
+            v:Destroy()
         end
     end
 
-    local height = math.clamp(#rows * 22, 22, 160)
-    menu = make("ScrollingFrame", {
-        Size = UDim2.new(1, -16, 0, height),
-        Position = UDim2.fromOffset(8, y + 24),
-        BackgroundColor3 = Color3.fromRGB(32, 32, 32),
-        BorderSizePixel = 0,
-        ScrollBarThickness = 3,
-        ScrollBarImageColor3 = Color3.fromRGB(70, 70, 70),
-        CanvasSize = UDim2.new(),
-        AutomaticCanvasSize = Enum.AutomaticSize.Y,
-        ScrollingDirection = Enum.ScrollingDirection.Y,
-        Active = true,
-        ZIndex = 5,
-    }, root)
-    make("UIListLayout", {
-        FillDirection = Enum.FillDirection.Vertical,
-        SortOrder = Enum.SortOrder.LayoutOrder,
-    }, menu)
-
-    for index, item in ipairs(rows) do
-        local row = make("TextButton", {
-            Size = UDim2.new(1, 0, 0, 22),
-            BackgroundColor3 = Color3.fromRGB(58, 58, 58),
-            BackgroundTransparency = item.selected and 0 or 1,
-            BorderSizePixel = 0,
-            Font = Enum.Font.SourceSans,
-            Text = item.text,
-            TextSize = 15,
-            TextColor3 = TEXT,
-            TextXAlignment = Enum.TextXAlignment.Left,
-            TextTruncate = Enum.TextTruncate.AtEnd,
-            AutoButtonColor = false,
-            LayoutOrder = index,
-            ZIndex = 5,
-        }, menu)
-        make("UIPadding", {
-            PaddingLeft = UDim.new(0, 6),
-            PaddingRight = UDim.new(0, 6),
-        }, row)
-        if item.hover then
-            row.MouseEnter:Connect(item.hover)
-            row.MouseLeave:Connect(item.unhover)
-        end
-        row.MouseButton1Click:Connect(function()
-            item.choose()
-            task.defer(closeMenu)
-        end)
-    end
+    print("done")
 end
 
-local function refreshPlayers()
-    paintOwners()
-    if menuKind then
-        openMenu(menuKind, menuY)
-    end
-end
-
-local function fieldLabel(text, y)
-    make("TextLabel", {
-        Size = UDim2.new(1, -16, 0, 16),
-        Position = UDim2.fromOffset(8, y),
-        BackgroundTransparency = 1,
-        Font = Enum.Font.SourceSans,
-        Text = text,
-        TextSize = 14,
-        TextColor3 = MUTED,
-        TextXAlignment = Enum.TextXAlignment.Left,
-    }, root)
-end
-
-local function dropdownButton(y)
-    local btn = make("TextButton", {
-        Size = UDim2.new(1, -16, 0, 22),
-        Position = UDim2.fromOffset(8, y),
-        BackgroundColor3 = Color3.fromRGB(58, 58, 58),
-        BorderSizePixel = 0,
-        Text = "",
-        AutoButtonColor = false,
-        ZIndex = 3,
-    }, root)
-    local caption = make("TextLabel", {
-        Size = UDim2.new(1, -22, 1, 0),
-        Position = UDim2.fromOffset(6, 0),
-        BackgroundTransparency = 1,
-        Font = Enum.Font.SourceSans,
-        Text = "Select",
-        TextSize = 15,
-        TextColor3 = TEXT,
-        TextXAlignment = Enum.TextXAlignment.Left,
-        TextTruncate = Enum.TextTruncate.AtEnd,
-        ZIndex = 3,
-    }, btn)
-    make("TextLabel", {
-        Size = UDim2.fromOffset(16, 22),
-        Position = UDim2.new(1, -16, 0, 0),
-        BackgroundTransparency = 1,
-        Font = Enum.Font.SourceSans,
-        Text = "v",
-        TextSize = 14,
-        TextColor3 = MUTED,
-        ZIndex = 3,
-    }, btn)
-    return btn, caption
-end
-
-local function build(parent)
-    root = make("Frame", {
-        Name = "SawmillLoaderRoot",
-        Size = UDim2.fromScale(1, 1),
-        BackgroundTransparency = 1,
-    }, parent)
-
-    fieldLabel("Sawmill owner", 8)
-    local sawmillBtn
-    sawmillBtn, sawmillCaption = dropdownButton(26)
-    fieldLabel("Wood owner", 58)
-    local woodBtn
-    woodBtn, woodCaption = dropdownButton(76)
-    fieldLabel("Wood", 108)
-    local woodTypeBtn
-    woodTypeBtn, woodTypeCaption = dropdownButton(126)
-    fieldLabel("Sawmill", 158)
-    local millBtn
-    millBtn, millCaption = dropdownButton(176)
-
-    startBtn = make("TextButton", {
-        Size = UDim2.new(1, -16, 0, 22),
-        Position = UDim2.fromOffset(8, 208),
-        BackgroundColor3 = GREEN,
-        BorderSizePixel = 0,
-        Font = Enum.Font.SourceSans,
-        Text = "Start",
-        TextSize = 15,
-        TextColor3 = Color3.fromRGB(255, 255, 255),
-        AutoButtonColor = false,
-        ZIndex = 3,
-    }, root)
-
-    statusLabel = make("TextLabel", {
-        Size = UDim2.new(1, -16, 0, 16),
-        Position = UDim2.fromOffset(8, 236),
-        BackgroundTransparency = 1,
-        Font = Enum.Font.SourceSans,
-        Text = statusText,
-        TextSize = 14,
-        TextColor3 = Color3.fromRGB(140, 140, 140),
-        TextXAlignment = Enum.TextXAlignment.Left,
-        TextTruncate = Enum.TextTruncate.AtEnd,
-    }, root)
-
-    sawmillBtn.MouseButton1Click:Connect(function()
-        if menuKind == "sawmill" then
-            closeMenu()
-        else
-            openMenu("sawmill", 26)
-        end
-    end)
-    woodBtn.MouseButton1Click:Connect(function()
-        if menuKind == "wood" then
-            closeMenu()
-        else
-            openMenu("wood", 76)
-        end
-    end)
-    woodTypeBtn.MouseButton1Click:Connect(function()
-        if menuKind == "woodType" then
-            closeMenu()
-        else
-            openMenu("woodType", 126)
-        end
-    end)
-    millBtn.MouseButton1Click:Connect(function()
-        if menuKind == "mill" then
-            closeMenu()
-        else
-            openMenu("mill", 176)
-        end
-    end)
-    startBtn.MouseButton1Click:Connect(function()
-        if running then
-            endRun()
-        else
-            beginRun()
-        end
-        pcall(closeMenu)
-    end)
-
-    track(Players.PlayerAdded:Connect(refreshPlayers))
-    track(Players.PlayerRemoving:Connect(function()
-        task.defer(refreshPlayers)
-    end))
-
-    paintOwners()
-    paintRun()
-end
-
-function api.mount(parent)
-    if mounted then
-        api.unmount()
-    end
-    build(parent)
-    mounted = true
-    pcall(refreshHighlight)
-    refreshAuraBinding()
-end
-
-function api.unmount()
-    mounted = false
-    closeMenu()
-    clearHighlight()
-    clearConns()
-    if root then
-        root:Destroy()
-        root = nil
-    end
-    sawmillCaption = nil
-    woodCaption = nil
-    woodTypeCaption = nil
-    millCaption = nil
-    if not running then
-        auraStyle = "off"
-    end
-    startBtn = nil
-    statusLabel = nil
-    refreshAuraBinding()
-end
-
-return api
+main()
