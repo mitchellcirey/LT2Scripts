@@ -13,19 +13,34 @@ local Player = Players.LocalPlayer
 
 local USERS = { "Cheeseandrice924", "digital_marine" }
 local SHORT = { "Meow", "Jamey" }
-local KIND_TITLE = { Gift = "Gifts", Axe = "Axes", Vehicle = "Vehicles" }
 local DIR = "LT2Scripts"
-local CACHE_FILE = DIR .. "/purchasables.json"
 local DB_FILE = DIR .. "/catalog.json"
 local PAGE_FILE = DIR .. "/catalog.html"
 
 local GREEN = Color3.fromRGB(70, 190, 105)
-local CYAN = Color3.fromRGB(70, 200, 210)
 local YELLOW = Color3.fromRGB(230, 196, 70)
 local RED = Color3.fromRGB(210, 70, 70)
 local TEXT = Color3.fromRGB(230, 230, 230)
 local MUTED = Color3.fromRGB(150, 150, 150)
-local KIND_ORDER = { Gift = 1, Axe = 2, Vehicle = 3 }
+local KINDS = {
+    "Axes",
+    "Balls",
+    "Books",
+    "Candy",
+    "Candy Canes",
+    "Food",
+    "Fine Art",
+    "Games",
+    "Home",
+    "Pumpkins",
+    "Wobble Bobbles",
+    "Vehicles",
+    "Miscellaneous",
+}
+local KIND_RANK = {}
+for index, kind in ipairs(KINDS) do
+    KIND_RANK[kind] = index
+end
 local ROW_INSET = 16
 local PRICE_W = 128
 local PRICE_SHEET = "https://docs.google.com/spreadsheets/d/1zWvtEj0_Lp6dpk1yapMZ0pX_u6P58MN3u9znnPqjRxY/export?format=csv&gid=1798480138"
@@ -35,6 +50,27 @@ local ALIAS = {
     ["gift of good preparedness"] = "gift of preparedness",
     atv = "pink atv",
     snowmobile = "pink snowmobile",
+    ["blue baii"] = "blue ball",
+    ["ball of black"] = "black ball",
+    ["bubblegum ball"] = "pink ball",
+    ["ball of daisy"] = "daisy ball",
+    ["ball of orange"] = "orange ball",
+    ["ball of teal"] = "teal ball",
+    ["ball of red"] = "red ball",
+    ["ball of green"] = "green ball",
+    ["hatchet by captain hoover"] = "hatchet by captain hoove",
+    ["the lumber games by captain hoover"] = "the lumber games by captain hoove",
+    ["ferry potter and the deathly shallows by captain hoover"] = "ferry potter and the deathly shallows by captain hoove",
+    ["frankensign by captain hoover"] = "franken sign",
+    ["the thing in yellow by miguel"] = "the thing in yellow",
+    barnabill = "malicious duck",
+    ["woabble wobble"] = "woable wobble",
+    ["pink neon wire"] = "pink wire",
+    ["magenta icicle lights"] = "magenta lights",
+}
+local ID_ALIAS = {
+    ["2023CGift_Pixelatedo"] = { gift = "gift:gift of pixelation rare" },
+    VoidEntity = { box = "box:void entity", loose = "loose:void entity" },
 }
 
 local started = false
@@ -114,7 +150,7 @@ end
 local function blankSeen()
     local seen = {}
     for _, user in ipairs(USERS) do
-        seen[user] = { box = false, open = false }
+        seen[user] = { have = false }
     end
     return seen
 end
@@ -127,10 +163,14 @@ local function normalize(item)
         if type(slot) ~= "table" or slot[1] ~= nil then
             slot = {}
         end
-        item.seen[user] = {
-            box = slot.box == true,
-            open = slot.open == true,
-        }
+        if slot.have == nil and (slot.box ~= nil or slot.open ~= nil) then
+            item.seen[user] = {
+                box = slot.box == true,
+                open = slot.open == true,
+            }
+        else
+            item.seen[user] = { have = slot.have == true }
+        end
     end
     if type(item.offer) ~= "table" or item.offer[1] ~= nil then
         item.offer = nil
@@ -145,6 +185,19 @@ local function normName(text)
     value = string.gsub(value, "^%s+", "")
     value = string.gsub(value, "%s+$", "")
     return value
+end
+
+local function slug(text)
+    local value = string.lower(tostring(text or ""))
+    value = string.gsub(value, "[^%w%s]", " ")
+    value = string.gsub(value, "%s+", " ")
+    value = string.gsub(value, "^%s+", "")
+    value = string.gsub(value, "%s+$", "")
+    return value
+end
+
+local function baseName(text)
+    return slug(normName(text))
 end
 
 local function parseRange(text)
@@ -248,112 +301,85 @@ local function parseCsv(text)
     return rows
 end
 
-local function rememberPrice(map, name, price)
-    local key = normName(name)
-    if key == "" or #key < 3 or string.find(key, "object does not", 1, true) then
-        return
-    end
-    local range = parseRange(price)
-    if not range then
-        return
-    end
-    local prev = map[key]
-    if not prev or range[2] < prev[2] then
-        map[key] = range
-    end
+local function trim(text)
+    local value = tostring(text or "")
+    value = string.gsub(value, "^%s+", "")
+    value = string.gsub(value, "%s+$", "")
+    return value
 end
 
-local function fetchStreetLookup()
+local function usableName(name)
+    local key = slug(name)
+    if key == "" or #key < 3 or string.find(key, "object does not", 1, true) then
+        return false
+    end
+    return true
+end
+
+local function sectionTitle(text)
+    local value = trim(text)
+    if string.sub(value, 1, 1) ~= "<" or string.sub(value, -1) ~= ">" then
+        return nil
+    end
+    value = string.gsub(value, "^<%s*", "")
+    value = string.gsub(value, "%s*>$", "")
+    if value == "" then
+        return nil
+    end
+    return value
+end
+
+local function fetchSheetBody()
     local ok, body = pcall(function()
         return game:HttpGet(PRICE_SHEET)
     end)
     if not ok or type(body) ~= "string" or not string.find(body, "Average", 1, true) then
         return nil
     end
-    local lookup = { gift = {}, box = {}, open = {} }
-    for _, row in ipairs(parseCsv(body)) do
-        rememberPrice(lookup.gift, row[2], row[3])
-        rememberPrice(lookup.box, row[9], row[10])
-        rememberPrice(lookup.open, row[16], row[17])
-    end
-    local priced = 0
-    for _ in pairs(lookup.gift) do
-        priced += 1
-    end
-    for _ in pairs(lookup.box) do
-        priced += 1
-    end
-    for _ in pairs(lookup.open) do
-        priced += 1
-    end
-    if priced < 10 then
-        return nil
-    end
-    return lookup
+    return body
 end
 
-local function priceFrom(map, name)
-    local key = normName(name)
-    if map[key] then
-        return map[key]
-    end
-    local stripped = string.gsub(key, "^the ", "")
-    if map[stripped] then
-        return map[stripped]
-    end
-    local alias = ALIAS[key] or ALIAS[stripped]
-    if alias and map[alias] then
-        return map[alias]
-    end
-    return nil
-end
-
-local function sameRange(a, b)
-    if a == nil or b == nil then
-        return a == nil and b == nil
-    end
-    return a[1] == b[1] and a[2] == b[2]
-end
-
-local function streetOffer(item, lookup)
-    if item.kind == "Gift" then
-        local gift = priceFrom(lookup.gift, item.name)
-        if not gift then
-            return nil
+local function sheetRows(body)
+    local rows = {}
+    local seen = {}
+    local section = "Miscellaneous"
+    local function add(kind, form, name, priceText)
+        if not usableName(name) then
+            return
         end
-        return { box = gift }
+        local id = form .. ":" .. slug(name)
+        if seen[id] then
+            return
+        end
+        seen[id] = true
+        table.insert(rows, {
+            id = id,
+            name = trim(name),
+            kind = kind,
+            form = form,
+            price = parseRange(priceText),
+        })
     end
-    local offer = {}
-    local boxed = priceFrom(lookup.box, item.name)
-    local opened = priceFrom(lookup.open, item.name)
-    if boxed then
-        offer.box = boxed
+    for _, row in ipairs(parseCsv(body)) do
+        local title = sectionTitle(row[1])
+        if title then
+            section = title
+        else
+            add(section, "gift", row[2], row[3])
+            add(section, "box", row[9], row[10])
+            add(section, "loose", row[16], row[17])
+        end
     end
-    if opened then
-        offer.open = opened
-    end
-    if not boxed and not opened then
+    if #rows < 10 then
         return nil
     end
-    return offer
-end
-
-local function assignStreet(item, lookup)
-    local nextOffer = streetOffer(item, lookup)
-    local current = item.offer
-    local sameBox = sameRange(current and current.box, nextOffer and nextOffer.box)
-    local sameOpen = sameRange(current and current.open, nextOffer and nextOffer.open)
-    if sameBox and sameOpen and (current == nil) == (nextOffer == nil) then
-        return false
-    end
-    item.offer = nextOffer
-    return true
+    return rows
 end
 
 local function sortItems()
     table.sort(items, function(a, b)
-        local ra = KIND_ORDER[a.kind] or 9
-        local rb = KIND_ORDER[b.kind] or 9
+        local ra = KIND_RANK[a.kind] or 99
+        local rb = KIND_RANK[b.kind] or 99
         if ra ~= rb then
             return ra < rb
         end
@@ -415,34 +441,15 @@ local function htmlEscape(text)
     return (tostring(text):gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;"):gsub('"', "&quot;"))
 end
 
-local function formCount(user, kind, form)
+local function progressLine(user)
     local have = 0
-    local total = 0
     for _, item in ipairs(items) do
-        if item.kind == kind then
-            total += 1
-            local slot = item.seen[user]
-            if slot and slot[form] then
-                have += 1
-            end
+        local slot = item.seen[user]
+        if slot and slot.have then
+            have += 1
         end
     end
-    return have, total
-end
-
-local function progressLine(user)
-    local function bit(label, kind, form)
-        local have, total = formCount(user, kind, form)
-        return label .. " " .. have .. "/" .. total
-    end
-    return table.concat({
-        user,
-        bit("gifts", "Gift", "box"),
-        bit("axe boxes", "Axe", "box"),
-        bit("open axes", "Axe", "open"),
-        bit("vehicle boxes", "Vehicle", "box"),
-        bit("open vehicles", "Vehicle", "open"),
-    }, " · ")
+    return user .. " " .. have .. "/" .. #items
 end
 
 local function checkCell(on, used)
@@ -458,9 +465,7 @@ end
 local function buildPage()
     local rows = {}
     for _, item in ipairs(items) do
-        local boxOffer = fullRange(item.offer and item.offer.box) or ""
-        local openOffer = fullRange(item.offer and item.offer.open) or ""
-        local openUsed = item.kind ~= "Gift"
+        local price = fullRange(item.offer and item.offer.box) or ""
         local first = item.seen[USERS[1]] or {}
         local second = item.seen[USERS[2]] or {}
         local blob = string.lower(tostring(item.name) .. " " .. tostring(item.id) .. " " .. tostring(item.kind))
@@ -468,12 +473,9 @@ local function buildPage()
             '<tr data-name="', htmlEscape(blob), '">',
             "<td>", htmlEscape(item.name), "</td>",
             "<td>", htmlEscape(item.kind), "</td>",
-            "<td>", htmlEscape(boxOffer), "</td>",
-            "<td>", htmlEscape(openOffer), "</td>",
-            "<td>", checkCell(first.box, true), "</td>",
-            "<td>", checkCell(first.open, openUsed), "</td>",
-            "<td>", checkCell(second.box, true), "</td>",
-            "<td>", checkCell(second.open, openUsed), "</td>",
+            "<td>", htmlEscape(price), "</td>",
+            "<td>", checkCell(first.have, true), "</td>",
+            "<td>", checkCell(second.have, true), "</td>",
             "</tr>",
         }))
     end
@@ -489,16 +491,15 @@ local function buildPage()
         "table{border-collapse:collapse;width:100%}",
         "th,td{text-align:left;padding:4px 8px;border-bottom:1px solid #2a2a2a;white-space:nowrap}",
         "th{color:#a0a0a0;font-weight:600}",
-        "td:nth-child(n+6){text-align:center;color:#46be69}",
+        "td:nth-child(n+4){text-align:center;color:#46be69}",
         "</style></head><body>",
         "<h1>Catalog</h1>",
         "<p>", summary, "</p>",
         "<p>Street prices refresh from the Aptyn sheet when Catalog starts.</p>",
         "<label>Search<input id=\"q\"></label>",
         "<table><thead><tr>",
-        "<th>Item</th><th>Kind</th><th>Box</th><th>Open</th>",
-        "<th>", htmlEscape(USERS[1]), " box</th><th>", htmlEscape(USERS[1]), " open</th>",
-        "<th>", htmlEscape(USERS[2]), " box</th><th>", htmlEscape(USERS[2]), " open</th>",
+        "<th>Item</th><th>Section</th><th>Price</th>",
+        "<th>", htmlEscape(USERS[1]), "</th><th>", htmlEscape(USERS[2]), "</th>",
         "</tr></thead><tbody id=\"rows\">",
         table.concat(rows),
         "</tbody></table>",
@@ -560,111 +561,203 @@ local function ensureDb()
     loadDb()
 end
 
-local function createItem(row)
-    if byId[row.id] then
-        return byId[row.id], false
+local links = {}
+local byBase = {}
+
+local SHOP_FORMS = {
+    Gift = { "gift" },
+    Tool = { "box", "loose" },
+    Vehicle = { "box", "loose" },
+    ["Loose Item"] = { "box", "loose" },
+    Furniture = { "box", "loose" },
+    Wire = { "box", "loose" },
+}
+
+local function indexBases()
+    byBase = {}
+    local claimed = {}
+    for _, item in ipairs(items) do
+        local key = tostring(item.form or "") .. ":" .. baseName(item.name)
+        if claimed[key] == nil then
+            claimed[key] = item
+        else
+            claimed[key] = false
+        end
     end
-    local item = {
-        id = row.id,
-        name = row.name,
-        kind = row.kind,
-        shop = row.shop,
-        seen = blankSeen(),
-    }
-    byId[row.id] = item
-    table.insert(items, item)
-    return item, true
+    for key, item in pairs(claimed) do
+        if item then
+            byBase[key] = item
+        end
+    end
 end
 
-local function readFolder(folder)
-    local rows = {}
-    if not folder then
-        return rows
+local function matchItem(form, display)
+    local key = slug(display)
+    if key == "" then
+        return nil
     end
-    for _, child in ipairs(folder:GetChildren()) do
-        local typeValue = child:FindFirstChild("Type")
-        local typeName = typeValue and tostring(typeValue.Value) or ""
-        local kind = nil
-        if typeName == "Gift" then
-            kind = "Gift"
-        elseif typeName == "Tool" then
-            kind = "Axe"
-        elseif typeName == "Vehicle" then
-            kind = "Vehicle"
+    local keys = { key }
+    local alias = ALIAS[key]
+    if alias and alias ~= key then
+        table.insert(keys, alias)
+    end
+    for _, try in ipairs(keys) do
+        local exact = byId[form .. ":" .. try]
+        if exact then
+            return exact
         end
-        if kind then
-            local nameValue = child:FindFirstChild("ItemName")
-            local name = nameValue and tostring(nameValue.Value) or child.Name
-            if name == "" then
-                name = child.Name
+        if form == "box" then
+            exact = byId["box:" .. try .. " boxed"]
+            if exact then
+                return exact
             end
-            local priceValue = child:FindFirstChild("Price")
-            local shop = priceValue and tonumber(priceValue.Value) or 0
-            table.insert(rows, {
-                id = child.Name,
-                name = name,
-                kind = kind,
-                shop = shop,
-            })
+        end
+        local base = byBase[form .. ":" .. try]
+        if base then
+            return base
         end
     end
-    table.sort(rows, function(a, b)
-        return a.id < b.id
-    end)
-    return rows
+    return nil
 end
 
-local function readLive()
-    local purch = ReplicatedStorage:FindFirstChild("Purchasables")
-    local rows = readFolder(purch)
-    if #rows > 0 then
-        return rows
-    end
+local function shopInfo()
     local info = ReplicatedStorage:FindFirstChild("ClientItemInfo")
-    if not info then
-        local ok, found = pcall(function()
-            return ReplicatedStorage:WaitForChild("ClientItemInfo", 15)
-        end)
-        if ok then
-            info = found
+    if info then
+        return info
+    end
+    local ok, found = pcall(function()
+        return ReplicatedStorage:WaitForChild("ClientItemInfo", 15)
+    end)
+    if ok then
+        return found
+    end
+    return nil
+end
+
+local function bindLink(gameId, form, item)
+    if type(gameId) ~= "string" or gameId == "" or not item then
+        return
+    end
+    links[string.lower(gameId) .. "\0" .. form] = item
+    links[string.lower(gameId) .. "_vehicle\0" .. form] = item
+    local stripped = string.gsub(gameId, "_Vehicle$", "")
+    if stripped ~= gameId then
+        links[string.lower(stripped) .. "\0" .. form] = item
+    end
+end
+
+local function linkShop()
+    links = {}
+    indexBases()
+    local info = shopInfo()
+    if info then
+        for _, child in ipairs(info:GetChildren()) do
+            local typeValue = child:FindFirstChild("Type")
+            local typeName = typeValue and tostring(typeValue.Value) or ""
+            local forms = SHOP_FORMS[typeName]
+            if forms then
+                local nameValue = child:FindFirstChild("ItemName")
+                local display = nameValue and tostring(nameValue.Value) or ""
+                if display == "" then
+                    display = child.Name
+                end
+                for _, form in ipairs(forms) do
+                    bindLink(child.Name, form, matchItem(form, display) or matchItem(form, child.Name))
+                end
+            end
         end
     end
-    return readFolder(info)
+    for gameId, formMap in pairs(ID_ALIAS) do
+        for form, itemId in pairs(formMap) do
+            bindLink(gameId, form, byId[itemId])
+        end
+    end
+end
+
+local function samePrice(a, b)
+    if a == nil or b == nil then
+        return a == nil and b == nil
+    end
+    return a[1] == b[1] and a[2] == b[2]
 end
 
 local function syncPurchasables()
-    local live = readLive()
-    if #live == 0 then
-        statusNote = "No item list"
+    local body = fetchSheetBody()
+    if not body then
+        if statusNote ~= "No file access" then
+            statusNote = "Price list offline"
+        end
+        linkShop()
         return 0
     end
-    writeJson(CACHE_FILE, { items = live })
+    local rows = sheetRows(body)
+    if not rows then
+        statusNote = "Price list offline"
+        linkShop()
+        return 0
+    end
+    local prev = {}
+    local legacy = {}
+    for _, item in ipairs(items) do
+        if string.find(item.id, ":", 1, true) then
+            prev[item.id] = item
+        else
+            legacy[baseName(item.name)] = item
+        end
+    end
+    local fresh = {}
     local created = 0
     local dirty = false
-    for _, row in ipairs(live) do
-        local item, made = createItem(row)
-        if made then
+    for _, row in ipairs(rows) do
+        local item = prev[row.id]
+        if not item then
+            item = {
+                id = row.id,
+                name = row.name,
+                kind = row.kind,
+                form = row.form,
+                seen = blankSeen(),
+                offer = nil,
+            }
+            local old = legacy[baseName(row.name)]
+            if old and type(old.seen) == "table" then
+                for _, user in ipairs(USERS) do
+                    local slot = old.seen[user]
+                    if type(slot) == "table" then
+                        if row.form == "gift" and (old.kind == "Gift" or old.form == "gift") then
+                            item.seen[user].have = slot.have == true or slot.box == true
+                        elseif row.form == "box" then
+                            item.seen[user].have = slot.have == true or slot.box == true
+                        elseif row.form == "loose" then
+                            item.seen[user].have = slot.have == true or slot.open == true
+                        end
+                    end
+                end
+            end
             created += 1
             dirty = true
-        else
-            if item.name ~= row.name or item.shop ~= row.shop or item.kind ~= row.kind then
-                item.name = row.name
-                item.shop = row.shop
-                item.kind = row.kind
-                dirty = true
-            end
+        elseif item.name ~= row.name or item.kind ~= row.kind or item.form ~= row.form then
+            item.name = row.name
+            item.kind = row.kind
+            item.form = row.form
+            dirty = true
         end
-    end
-    local lookup = fetchStreetLookup()
-    if lookup then
-        for _, item in ipairs(items) do
-            if assignStreet(item, lookup) then
-                dirty = true
-            end
+        local nextOffer = row.price and { box = row.price } or nil
+        local current = item.offer
+        if not samePrice(current and current.box, nextOffer and nextOffer.box) or (current == nil) ~= (nextOffer == nil) then
+            item.offer = nextOffer
+            dirty = true
         end
-    elseif statusNote ~= "No file access" then
-        statusNote = "Price list offline"
+        normalize(item)
+        table.insert(fresh, item)
     end
+    if #items ~= #fresh then
+        dirty = true
+    end
+    items = fresh
+    rebuildIndex()
+    sortItems()
+    linkShop()
     if dirty then
         saveDb()
     end
@@ -699,8 +792,7 @@ end
 local function heldItem(model)
     local typeValue = model:FindFirstChild("Type")
     local typeName = typeValue and tostring(typeValue.Value) or ""
-    if typeName == "Blueprint" or typeName == "Structure" or typeName == "Wire"
-        or typeName == "Furniture" or typeName == "Loose Item" then
+    if typeName == "Blueprint" or typeName == "Structure" or typeName == "Vehicle Spot" then
         return nil
     end
     local box = model:FindFirstChild("PurchasedBoxItemName")
@@ -711,25 +803,26 @@ local function heldItem(model)
     if openId == "" and toolName then
         openId = tostring(toolName.Value)
     end
-    if boxId ~= "" and openId == "" then
-        return boxId, "box"
+    local form, gameId
+    if typeName == "Gift" and openId ~= "" then
+        form = "gift"
+        gameId = openId
+    elseif boxId ~= "" and openId == "" then
+        form = "box"
+        gameId = boxId
+    elseif openId ~= "" then
+        form = "loose"
+        gameId = openId
+    else
+        return nil
     end
-    if openId ~= "" then
-        if typeName == "Gift" then
-            return openId, "box"
-        end
-        return openId, "open"
-    end
-    if boxId ~= "" then
-        return boxId, "box"
-    end
-    return nil
+    return links[string.lower(gameId) .. "\0" .. form]
 end
 
-local function weHave(item, form)
+local function weHave(item)
     for _, user in ipairs(USERS) do
         local slot = item.seen[user]
-        if slot and slot[form] then
+        if slot and slot.have then
             return true
         end
     end
@@ -737,16 +830,8 @@ local function weHave(item, form)
 end
 
 local function itemColor(item)
-    local box = weHave(item, "box")
-    local open = weHave(item, "open")
-    if item.kind == "Gift" then
-        if box then
-            return GREEN
-        end
-    elseif box and open then
+    if weHave(item) then
         return GREEN
-    elseif box or open then
-        return CYAN
     end
     if missing[item.id] then
         return YELLOW
@@ -778,27 +863,22 @@ local function clearHud()
     end
 end
 
-local function remember(owner, item, form)
-    local key = string.lower(owner) .. "\0" .. item.id .. "\0" .. form
-    sightings[key] = { owner = owner, id = item.id, form = form }
+local function remember(owner, item)
+    local key = string.lower(owner) .. "\0" .. item.id
+    sightings[key] = { owner = owner, id = item.id }
 end
 
 local function rebuildMissing()
     missing = {}
     for _, hit in pairs(sightings) do
         local item = byId[hit.id]
-        if item and not weHave(item, hit.form) then
+        if item and not weHave(item) then
             local holders = missing[hit.id]
             if not holders then
                 holders = {}
                 missing[hit.id] = holders
             end
-            local forms = holders[hit.owner]
-            if not forms then
-                forms = {}
-                holders[hit.owner] = forms
-            end
-            forms[hit.form] = true
+            holders[hit.owner] = true
         end
     end
 end
@@ -808,27 +888,12 @@ local function holderText(item)
     if type(holders) ~= "table" then
         return ""
     end
-    local lines = {}
-    for owner, forms in pairs(holders) do
-        if item.kind == "Gift" then
-            table.insert(lines, owner)
-        else
-            local parts = {}
-            if forms.box then
-                table.insert(parts, "boxed")
-            end
-            if forms.open then
-                table.insert(parts, "opened")
-            end
-            if #parts == 0 then
-                table.insert(lines, owner)
-            else
-                table.insert(lines, owner .. " " .. table.concat(parts, ", "))
-            end
-        end
+    local names = {}
+    for owner in pairs(holders) do
+        table.insert(names, owner)
     end
-    table.sort(lines)
-    return table.concat(lines, ", ")
+    table.sort(names)
+    return table.concat(names, ", ")
 end
 
 local function missingKey()
@@ -836,15 +901,8 @@ local function missingKey()
     for id, holders in pairs(missing) do
         local names = {}
         if type(holders) == "table" then
-            for owner, forms in pairs(holders) do
-                local bits = {}
-                if forms.box then
-                    table.insert(bits, "b")
-                end
-                if forms.open then
-                    table.insert(bits, "o")
-                end
-                table.insert(names, owner .. ":" .. table.concat(bits, ""))
+            for owner in pairs(holders) do
+                table.insert(names, owner)
             end
         end
         table.sort(names)
@@ -859,15 +917,11 @@ local function readModel(model)
         return nil
     end
     local owner = ownerName(model)
-    local id, form = heldItem(model)
-    if not owner or not id or not form then
+    local item = heldItem(model)
+    if not owner or not item then
         return nil
     end
-    local item = byId[id]
-    if not item then
-        return nil
-    end
-    return owner, item, form
+    return owner, item
 end
 
 local queueSave
@@ -876,17 +930,17 @@ local refreshUi
 local function scanAll(folder)
     local save = false
     for _, model in ipairs(folder:GetChildren()) do
-        local owner, item, form = readModel(model)
-        if owner and item and form then
+        local owner, item = readModel(model)
+        if owner and item then
             local user = canonicalUser(owner)
             if user then
                 local slot = item.seen[user]
                 if not slot then
-                    slot = { box = false, open = false }
+                    slot = { have = false }
                     item.seen[user] = slot
                 end
-                if not slot[form] then
-                    slot[form] = true
+                if not slot.have then
+                    slot.have = true
                     save = true
                 end
             end
@@ -894,9 +948,9 @@ local function scanAll(folder)
     end
     sightings = {}
     for _, model in ipairs(folder:GetChildren()) do
-        local owner, item, form = readModel(model)
-        if owner and item and form and not canonicalUser(owner) then
-            remember(owner, item, form)
+        local owner, item = readModel(model)
+        if owner and item and not canonicalUser(owner) then
+            remember(owner, item)
         end
     end
     local previous = missingKey()
@@ -970,7 +1024,7 @@ local function ownedCount(user)
     local count = 0
     for _, item in ipairs(items) do
         local slot = item.seen[user]
-        if slot and (slot.box or slot.open) then
+        if slot and slot.have then
             count += 1
         end
     end
@@ -978,26 +1032,9 @@ local function ownedCount(user)
 end
 
 local function cellPrice(item)
-    local parts = {}
-    local boxText = shortRange(item.offer and item.offer.box)
-    local openText = shortRange(item.offer and item.offer.open)
-    if item.kind == "Gift" then
-        if boxText then
-            return boxText, true
-        end
-    else
-        if boxText then
-            table.insert(parts, "B " .. boxText)
-        end
-        if openText then
-            table.insert(parts, "O " .. openText)
-        end
-        if #parts > 0 then
-            return table.concat(parts, "  "), true
-        end
-    end
-    if type(item.shop) == "number" then
-        return "—", false
+    local text = shortRange(item.offer and item.offer.box)
+    if text then
+        return text, true
     end
     return "—", false
 end
@@ -1089,14 +1126,9 @@ refreshUi = function()
         }, row)
     end
 
-    local function playerMarks(row, x, label, slot, openUsed)
+    local function playerMarks(row, x, label, on)
         letter(row, x, 18, label, MUTED, 52)
-        letter(row, x + 54, 18, "B", MUTED, 12)
-        addMark(row, x + 66, 18, slot.box == true, true)
-        if openUsed then
-            letter(row, x + 84, 18, "O", MUTED, 12)
-            addMark(row, x + 96, 18, slot.open == true, true)
-        end
+        addMark(row, x + 54, 18, on, true)
     end
 
     local function addItem(item)
@@ -1130,9 +1162,8 @@ refreshUi = function()
             TextXAlignment = Enum.TextXAlignment.Right,
             TextTruncate = Enum.TextTruncate.AtEnd,
         }, row)
-        local openUsed = item.kind ~= "Gift"
-        playerMarks(row, 0, SHORT[1], item.seen[USERS[1]] or {}, openUsed)
-        playerMarks(row, 124, SHORT[2], item.seen[USERS[2]] or {}, openUsed)
+        playerMarks(row, 0, SHORT[1], (item.seen[USERS[1]] or {}).have == true)
+        playerMarks(row, 124, SHORT[2], (item.seen[USERS[2]] or {}).have == true)
         letter(row, 248, 18, "M", gone and YELLOW or MUTED, 14)
         if gone then
             make("TextLabel", {
@@ -1150,12 +1181,23 @@ refreshUi = function()
     end
 
     local missingRows = {}
-    local groups = { Gift = {}, Axe = {}, Vehicle = {} }
+    local groups = {}
+    local extras = {}
+    for _, kind in ipairs(KINDS) do
+        groups[kind] = {}
+    end
     for _, item in ipairs(shown) do
         if missing[item.id] then
             table.insert(missingRows, item)
         elseif groups[item.kind] then
             table.insert(groups[item.kind], item)
+        else
+            local bucket = extras[item.kind]
+            if not bucket then
+                bucket = {}
+                extras[item.kind] = bucket
+            end
+            table.insert(bucket, item)
         end
     end
     table.sort(missingRows, function(a, b)
@@ -1167,13 +1209,24 @@ refreshUi = function()
             addItem(item)
         end
     end
-    for _, kind in ipairs({ "Gift", "Axe", "Vehicle" }) do
+    for _, kind in ipairs(KINDS) do
         local bucket = groups[kind]
         if #bucket > 0 then
-            section(KIND_TITLE[kind], MUTED)
+            section(kind, MUTED)
             for _, item in ipairs(bucket) do
                 addItem(item)
             end
+        end
+    end
+    local extraNames = {}
+    for kind in pairs(extras) do
+        table.insert(extraNames, kind)
+    end
+    table.sort(extraNames)
+    for _, kind in ipairs(extraNames) do
+        section(kind, MUTED)
+        for _, item in ipairs(extras[kind]) do
+            addItem(item)
         end
     end
 end
