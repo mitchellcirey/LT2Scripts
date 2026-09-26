@@ -20,8 +20,6 @@ local MUTED = Color3.fromRGB(160, 160, 160)
 local RED = Color3.fromRGB(210, 70, 70)
 local GREEN = Color3.fromRGB(70, 190, 105)
 
-local RADIUS_MIN = 1
-local RADIUS_MAX = 64
 local AURA_SEGMENTS = 64
 local SELL_POSITION = Vector3.new(426, 10, 443.71)
 
@@ -57,7 +55,7 @@ local sawmillOwner
 local woodOwner
 local selectedMillKey
 local selectedModel
-local radius = 8
+local radius = 10
 local running = false
 local mounted = false
 local runToken = 0
@@ -85,9 +83,6 @@ local sawmillCaption
 local woodCaption
 local millCaption
 local startBtn
-local radiusLabel
-local radiusFill
-local radiusSlider
 local statusLabel
 local menu
 local backdrop
@@ -202,7 +197,6 @@ local function saveConfig()
         sawmillOwner = sawmillOwner,
         woodOwner = woodOwner,
         sawmill = selectedMillKey,
-        radius = radius,
     }
     local encodedOk, encoded = pcall(function()
         return Services.HttpService:JSONEncode(payload)
@@ -224,10 +218,6 @@ local function applySaved(data)
     end
     if type(data.sawmill) == "string" and data.sawmill ~= "" then
         selectedMillKey = data.sawmill
-    end
-    local savedRadius = tonumber(data.radius)
-    if savedRadius then
-        radius = math.clamp(math.floor(savedRadius + 0.5), RADIUS_MIN, RADIUS_MAX)
     end
 end
 
@@ -691,7 +681,7 @@ local function pause(seconds, alive)
     end
 end
 
-local function moveLogs(player, chosen, alive)
+local function moveLogs(player, sawmills, alive)
     local logs = Workspace:FindFirstChild("LogModels")
     if not logs then
         return
@@ -734,6 +724,19 @@ local function moveLogs(player, chosen, alive)
             return
         end
 
+        local chosen
+        local highestSize = 0
+        local woodVolume = woodSection.Size.X * woodSection.Size.Z * woodSection.Size.Y
+        for _, sawmill in ipairs(sawmills) do
+            local sawmillSize = sawmill.x * sawmill.y * 0.25
+            if woodVolume >= sawmillSize and sawmillSize > highestSize then
+                highestSize = sawmillSize
+                chosen = sawmill
+            end
+        end
+        if not chosen then
+            return
+        end
         local props = sawmillProperties[chosen.Name]
         if not props or woodSection.Size.Y > props.length then
             return
@@ -778,13 +781,8 @@ local function step(alive)
         api.setStatus("No sawmills")
         return
     end
-    local chosen = findMill(sawmills)
-    if not chosen then
-        api.setStatus("Select sawmill")
-        return
-    end
     api.setStatus("Running")
-    moveLogs(woodPlayer, chosen, alive)
+    moveLogs(woodPlayer, sawmills, alive)
 end
 
 function api.setStatus(text)
@@ -831,16 +829,6 @@ local function paintOwners()
     end
     if millCaption and millCaption.Parent then
         millCaption.Text = millCaptionText()
-    end
-end
-
-local function paintRadius()
-    if radiusLabel and radiusLabel.Parent then
-        radiusLabel.Text = "Radius  " .. tostring(radius)
-    end
-    if radiusFill and radiusFill.Parent then
-        local span = RADIUS_MAX - RADIUS_MIN
-        radiusFill.Size = UDim2.new((radius - RADIUS_MIN) / span, 0, 1, 0)
     end
 end
 
@@ -1114,16 +1102,6 @@ local function dropdownButton(y)
     return btn, caption
 end
 
-local function radiusFromX(x)
-    local width = radiusSlider.AbsoluteSize.X
-    if width <= 0 then
-        return radius
-    end
-    local alpha = math.clamp((x - radiusSlider.AbsolutePosition.X) / width, 0, 1)
-    local span = RADIUS_MAX - RADIUS_MIN
-    return math.clamp(math.floor(alpha * span + RADIUS_MIN + 0.5), RADIUS_MIN, RADIUS_MAX)
-end
-
 local function build(parent)
     root = make("Frame", {
         Name = "SawmillLoaderRoot",
@@ -1141,34 +1119,9 @@ local function build(parent)
     local millBtn
     millBtn, millCaption = dropdownButton(126)
 
-    radiusLabel = make("TextLabel", {
-        Size = UDim2.new(1, -16, 0, 16),
-        Position = UDim2.fromOffset(8, 158),
-        BackgroundTransparency = 1,
-        Font = Enum.Font.SourceSans,
-        Text = "Radius  " .. tostring(radius),
-        TextSize = 14,
-        TextColor3 = MUTED,
-        TextXAlignment = Enum.TextXAlignment.Left,
-    }, root)
-
-    radiusSlider = make("TextButton", {
-        Size = UDim2.new(1, -16, 0, 14),
-        Position = UDim2.fromOffset(8, 178),
-        BackgroundColor3 = Color3.fromRGB(40, 40, 40),
-        BorderSizePixel = 0,
-        Text = "",
-        AutoButtonColor = false,
-    }, root)
-    radiusFill = make("Frame", {
-        Size = UDim2.new((radius - RADIUS_MIN) / (RADIUS_MAX - RADIUS_MIN), 0, 1, 0),
-        BackgroundColor3 = Color3.fromRGB(230, 230, 230),
-        BorderSizePixel = 0,
-    }, radiusSlider)
-
     startBtn = make("TextButton", {
         Size = UDim2.new(1, -16, 0, 22),
-        Position = UDim2.fromOffset(8, 206),
+        Position = UDim2.fromOffset(8, 158),
         BackgroundColor3 = GREEN,
         BorderSizePixel = 0,
         Font = Enum.Font.SourceSans,
@@ -1181,7 +1134,7 @@ local function build(parent)
 
     statusLabel = make("TextLabel", {
         Size = UDim2.new(1, -16, 0, 16),
-        Position = UDim2.fromOffset(8, 234),
+        Position = UDim2.fromOffset(8, 186),
         BackgroundTransparency = 1,
         Font = Enum.Font.SourceSans,
         Text = statusText,
@@ -1221,67 +1174,12 @@ local function build(parent)
         pcall(closeMenu)
     end)
 
-    radiusSlider.InputBegan:Connect(function(input)
-        if input.UserInputType ~= Enum.UserInputType.MouseButton1 then
-            return
-        end
-        radius = radiusFromX(input.Position.X)
-        paintRadius()
-        showRadiusPreview()
-        local dragging = true
-        local moveConn
-        local endConn
-        local function finishDrag()
-            if not dragging then
-                return
-            end
-            dragging = false
-            if moveConn then
-                moveConn:Disconnect()
-            end
-            if endConn then
-                endConn:Disconnect()
-            end
-            hideRadiusPreview()
-            saveConfig()
-        end
-        moveConn = UserInputService.InputChanged:Connect(function(changed)
-            if not dragging or changed.UserInputType ~= Enum.UserInputType.MouseMovement then
-                return
-            end
-            radius = radiusFromX(changed.Position.X)
-            paintRadius()
-            if auraStyle ~= "pulse" and not running then
-                showRadiusPreview()
-            end
-        end)
-        task.defer(function()
-            if not dragging then
-                return
-            end
-            if not UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then
-                finishDrag()
-                return
-            end
-            endConn = UserInputService.InputEnded:Connect(function(ended)
-                if ended.UserInputType ~= Enum.UserInputType.MouseButton1 then
-                    return
-                end
-                if UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then
-                    return
-                end
-                finishDrag()
-            end)
-        end)
-    end)
-
     track(Players.PlayerAdded:Connect(refreshPlayers))
     track(Players.PlayerRemoving:Connect(function()
         task.defer(refreshPlayers)
     end))
 
     paintOwners()
-    paintRadius()
     paintRun()
 end
 
@@ -1311,9 +1209,6 @@ function api.unmount()
         auraStyle = "off"
     end
     startBtn = nil
-    radiusLabel = nil
-    radiusFill = nil
-    radiusSlider = nil
     statusLabel = nil
     refreshAuraBinding()
 end
