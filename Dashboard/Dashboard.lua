@@ -39,6 +39,12 @@ local SIDEBAR = Color3.fromRGB(14, 14, 14)
 local ROW = Color3.fromRGB(32, 32, 32)
 local TEXT = Color3.fromRGB(230, 230, 230)
 local MUTED = Color3.fromRGB(160, 160, 160)
+local TOGGLE_OFF = Color3.fromRGB(58, 58, 58)
+local TOGGLE_W = 28
+local TOGGLE_H = 14
+local TOGGLE_KNOB = 10
+local TOGGLE_PAD = 2
+local TOGGLE_TWEEN = TweenInfo.new(0.2)
 
 local settings = {
     ctrlClick = true,
@@ -535,12 +541,26 @@ local ctx = {
 
 local states = {}
 
+local function paintToggle(state)
+    local on = state.started
+    if state.toggleOn == on then
+        return
+    end
+    state.toggleOn = on
+    local knobX = on and (TOGGLE_W - TOGGLE_KNOB - TOGGLE_PAD) or TOGGLE_PAD
+    Services.TweenService:Create(state.knob, TOGGLE_TWEEN, {
+        Position = UDim2.fromOffset(knobX, (TOGGLE_H - TOGGLE_KNOB) / 2),
+    }):Play()
+    Services.TweenService:Create(state.track, TOGGLE_TWEEN, {
+        BackgroundColor3 = on and GREEN or TOGGLE_OFF,
+    }):Play()
+end
+
 local function paint(entry)
     local state = states[entry.id]
     state.nameBtn.TextColor3 = state.started and GREEN or RED
-    local bg = state.shown and ROW or SIDEBAR
-    state.row.BackgroundColor3 = bg
-    state.gap.BackgroundColor3 = bg
+    state.row.BackgroundColor3 = state.shown and ROW or SIDEBAR
+    paintToggle(state)
 end
 
 local function ensureLoaded(entry)
@@ -668,41 +688,32 @@ local function togglePower(entry)
     end
 end
 
-local function powerIcon(parent)
-    local btn = make("TextButton", {
-        Size = UDim2.fromOffset(22, 22),
-        Position = UDim2.new(1, -22, 0.5, -11),
-        BackgroundTransparency = 1,
+local function toggleSwitch(parent)
+    local track = make("TextButton", {
+        Size = UDim2.fromOffset(TOGGLE_W, TOGGLE_H),
+        Position = UDim2.new(1, -(TOGGLE_W + 4), 0.5, -TOGGLE_H / 2),
+        BackgroundColor3 = TOGGLE_OFF,
         Text = "",
         AutoButtonColor = false,
     }, parent)
-    local ring = make("Frame", {
-        Size = UDim2.fromOffset(12, 12),
-        Position = UDim2.fromOffset(5, 6),
-        BackgroundTransparency = 1,
-    }, btn)
     make("UICorner", {
         CornerRadius = UDim.new(1, 0),
-    }, ring)
+    }, track)
     make("UIStroke", {
-        Color = Color3.fromRGB(210, 210, 210),
-        Thickness = 1.4,
-    }, ring)
-    local gap = make("Frame", {
-        Size = UDim2.fromOffset(4, 5),
-        Position = UDim2.fromOffset(9, 2),
-        BackgroundColor3 = SIDEBAR,
+        Color = Color3.fromRGB(70, 70, 70),
+        Thickness = 1,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+    }, track)
+    local knob = make("Frame", {
+        Size = UDim2.fromOffset(TOGGLE_KNOB, TOGGLE_KNOB),
+        Position = UDim2.fromOffset(TOGGLE_PAD, (TOGGLE_H - TOGGLE_KNOB) / 2),
+        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
         BorderSizePixel = 0,
-        ZIndex = 2,
-    }, btn)
-    make("Frame", {
-        Size = UDim2.fromOffset(2, 6),
-        Position = UDim2.fromOffset(10, 2),
-        BackgroundColor3 = Color3.fromRGB(210, 210, 210),
-        BorderSizePixel = 0,
-        ZIndex = 3,
-    }, btn)
-    return btn, gap
+    }, track)
+    make("UICorner", {
+        CornerRadius = UDim.new(1, 0),
+    }, knob)
+    return track, knob
 end
 
 for index, entry in ipairs(SCRIPTS) do
@@ -714,7 +725,7 @@ for index, entry in ipairs(SCRIPTS) do
     }, scriptList)
 
     local nameBtn = make("TextButton", {
-        Size = UDim2.new(1, -24, 1, 0),
+        Size = UDim2.new(1, -(TOGGLE_W + 8), 1, 0),
         BackgroundTransparency = 1,
         Font = Enum.Font.SourceSans,
         Text = entry.name,
@@ -728,12 +739,14 @@ for index, entry in ipairs(SCRIPTS) do
         PaddingLeft = UDim.new(0, 6),
     }, nameBtn)
 
-    local powerBtn, gap = powerIcon(row)
+    local track, knob = toggleSwitch(row)
 
     states[entry.id] = {
         row = row,
         nameBtn = nameBtn,
-        gap = gap,
+        track = track,
+        knob = knob,
+        toggleOn = false,
         started = false,
         shown = false,
         mounted = false,
@@ -744,7 +757,7 @@ for index, entry in ipairs(SCRIPTS) do
     nameBtn.MouseButton1Click:Connect(function()
         task.spawn(openScript, entry)
     end)
-    powerBtn.MouseButton1Click:Connect(function()
+    track.MouseButton1Click:Connect(function()
         task.spawn(togglePower, entry)
     end)
 end
