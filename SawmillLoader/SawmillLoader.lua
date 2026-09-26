@@ -76,6 +76,7 @@ local previewTransparency = 0.4
 local fadeFrom = 0.4
 local fadeStarted = 0
 local millHighlight
+local highlightDismissed = false
 local AURA_PREVIEW = Color3.fromRGB(0, 170, 255)
 local AURA_RUN = Color3.fromRGB(70, 210, 110)
 
@@ -367,7 +368,7 @@ local function drawAura(center, studs)
         if segment then
             segment.Color = color
             segment.Transparency = transparency
-            segment.Size = Vector3.new(0.15, 0.1, math.max((p2 - p1).Magnitude, 0.05))
+            segment.Size = Vector3.new(0.45, 0.35, math.max((p2 - p1).Magnitude, 0.05))
             segment.CFrame = CFrame.lookAt(midpoint, p2)
         end
     end
@@ -386,8 +387,14 @@ local function floorPoint(rootPart)
     end
     params.FilterDescendantsInstances = ignore
     local hit = Workspace:Raycast(origin, Vector3.new(0, -80, 0), params)
-    local ground = hit and hit.Position.Y or (origin.Y - 3)
-    return Vector3.new(origin.X, ground + 0.06, origin.Z)
+    local ground = origin.Y - 3
+    if hit then
+        local drop = origin.Y - hit.Position.Y
+        if drop >= 0 and drop < 12 then
+            ground = hit.Position.Y
+        end
+    end
+    return Vector3.new(origin.X, ground + 0.4, origin.Z)
 end
 
 local function wantsAura()
@@ -403,8 +410,8 @@ end
 
 local function stepAura()
     if auraStyle == "pulse" then
-        local wave = (math.sin(os.clock() * 3.2) + 1) / 2
-        previewTransparency = 0.08 + wave * 0.82
+        local wave = (math.sin(os.clock() * 2.6) + 1) / 2
+        previewTransparency = 0.05 + wave * 0.55
     elseif auraStyle == "fade" then
         local alpha = math.clamp((os.clock() - fadeStarted) / 0.55, 0, 1)
         previewTransparency = fadeFrom + (1 - fadeFrom) * alpha
@@ -581,16 +588,68 @@ local function getPlayerSawmills(owner)
     return sawmills
 end
 
-local function clearHighlight()
+local function eachLoaderHighlight(callback)
     if millHighlight then
-        millHighlight:Destroy()
-        millHighlight = nil
+        callback(millHighlight)
+    end
+    local models = Workspace:FindFirstChild("PlayerModels")
+    if not models then
+        return
+    end
+    for _, desc in ipairs(models:GetDescendants()) do
+        if desc:IsA("Highlight") and desc.Name == "SawmillLoaderHighlight" and desc ~= millHighlight then
+            callback(desc)
+        end
     end
 end
 
-local function highlightModel(model)
+local function clearHighlight()
+    eachLoaderHighlight(function(highlight)
+        if highlight.Parent then
+            highlight:Destroy()
+        end
+    end)
+    millHighlight = nil
+end
+
+local function dismissHighlight()
+    highlightDismissed = true
+    local fading = {}
+    eachLoaderHighlight(function(highlight)
+        if highlight.Parent then
+            table.insert(fading, highlight)
+        end
+    end)
+    millHighlight = nil
+    if #fading == 0 then
+        return
+    end
+    task.spawn(function()
+        local started = os.clock()
+        while os.clock() - started < 0.45 do
+            local alpha = math.clamp((os.clock() - started) / 0.45, 0, 1)
+            for _, highlight in ipairs(fading) do
+                if highlight.Parent then
+                    highlight.FillTransparency = 0.45 + (1 - 0.45) * alpha
+                    highlight.OutlineTransparency = alpha
+                end
+            end
+            task.wait()
+        end
+        for _, highlight in ipairs(fading) do
+            if highlight.Parent then
+                highlight:Destroy()
+            end
+        end
+    end)
+end
+
+local function highlightModel(model, force)
     clearHighlight()
     if running or not model or not model.Parent then
+        return
+    end
+    if highlightDismissed and not force then
         return
     end
     local highlight = Instance.new("Highlight")
@@ -605,7 +664,7 @@ local function highlightModel(model)
 end
 
 local function refreshHighlight()
-    if running then
+    if highlightDismissed or running then
         clearHighlight()
         return
     end
@@ -682,7 +741,6 @@ local function moveLogs(player, chosen, alive)
         if not alive() then
             return
         end
-
         woodSection.CFrame = CFrame.new(chosen.tpPosition) * chosen.rot
         ReplicatedStorage.Interaction.ClientIsDragging:FireServer(log)
         pause(target.Size.Y / 2, alive)
@@ -794,7 +852,7 @@ local function beginRun()
     runToken += 1
     local token = runToken
     lastLogErr = nil
-    clearHighlight()
+    dismissHighlight()
     auraStyle = "run"
     paintRun()
     refreshAuraBinding()
@@ -825,18 +883,24 @@ local function beginRun()
     end)
 end
 
+local function releaseDrag()
+    pcall(function()
+        ReplicatedStorage.Interaction.ClientIsDragging:FireServer(nil)
+    end)
+end
+
 local function endRun()
     local wasRunning = running
     running = false
     runToken += 1
-    restorePermission()
+    releaseDrag()
+    pcall(restorePermission)
     if wasRunning then
         api.setStatus("Stopped")
     end
     auraStyle = "off"
     paintRun()
     refreshAuraBinding()
-    refreshHighlight()
 end
 
 function api.start()
@@ -869,6 +933,7 @@ local function setOwner(kind, name)
             selectedModel = nil
         end
         sawmillOwner = name
+        highlightDismissed = false
     else
         woodOwner = name
     end
@@ -878,6 +943,7 @@ local function setOwner(kind, name)
 end
 
 local function setMill(entry)
+    highlightDismissed = false
     selectedModel = entry.model
     selectedMillKey = millKey(entry)
     paintOwners()
@@ -918,9 +984,13 @@ local function openMenu(kind, y)
                     setMill(picked)
                 end,
                 hover = function()
-                    highlightModel(picked.model)
+                    highlightModel(picked.model, true)
                 end,
                 unhover = function()
+                    if running or highlightDismissed then
+                        clearHighlight()
+                        return
+                    end
                     refreshHighlight()
                 end,
             })
@@ -1143,12 +1213,12 @@ local function build(parent)
         end
     end)
     startBtn.MouseButton1Click:Connect(function()
-        closeMenu()
         if running then
             endRun()
         else
             beginRun()
         end
+        pcall(closeMenu)
     end)
 
     radiusSlider.InputBegan:Connect(function(input)
@@ -1161,21 +1231,47 @@ local function build(parent)
         local dragging = true
         local moveConn
         local endConn
-        moveConn = UserInputService.InputChanged:Connect(function(changed)
-            if dragging and changed.UserInputType == Enum.UserInputType.MouseMovement then
-                radius = radiusFromX(changed.Position.X)
-                paintRadius()
-            end
-        end)
-        endConn = UserInputService.InputEnded:Connect(function(ended)
-            if ended.UserInputType ~= Enum.UserInputType.MouseButton1 then
+        local function finishDrag()
+            if not dragging then
                 return
             end
             dragging = false
-            moveConn:Disconnect()
-            endConn:Disconnect()
+            if moveConn then
+                moveConn:Disconnect()
+            end
+            if endConn then
+                endConn:Disconnect()
+            end
             hideRadiusPreview()
             saveConfig()
+        end
+        moveConn = UserInputService.InputChanged:Connect(function(changed)
+            if not dragging or changed.UserInputType ~= Enum.UserInputType.MouseMovement then
+                return
+            end
+            radius = radiusFromX(changed.Position.X)
+            paintRadius()
+            if auraStyle ~= "pulse" and not running then
+                showRadiusPreview()
+            end
+        end)
+        task.defer(function()
+            if not dragging then
+                return
+            end
+            if not UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then
+                finishDrag()
+                return
+            end
+            endConn = UserInputService.InputEnded:Connect(function(ended)
+                if ended.UserInputType ~= Enum.UserInputType.MouseButton1 then
+                    return
+                end
+                if UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then
+                    return
+                end
+                finishDrag()
+            end)
         end)
     end)
 
