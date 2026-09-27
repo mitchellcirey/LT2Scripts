@@ -1863,6 +1863,91 @@ local function switchRow(parent, labelText, order, getOn, setOn)
     paint()
 end
 
+local function scrollingName(parent, text)
+    local clip = make("Frame", {
+        Size = UDim2.new(1, -4, 0, 14),
+        Position = UDim2.new(0, 2, 1, -28),
+        BackgroundTransparency = 1,
+        ClipsDescendants = true,
+        ZIndex = 2,
+    }, parent)
+    local textW = Services.TextService:GetTextSize(
+        text,
+        13,
+        Enum.Font.SourceSans,
+        Vector2.new(10000, 100)
+    ).X
+    local clipW = SLOT - 4
+    if textW <= clipW then
+        make("TextLabel", {
+            Size = UDim2.fromScale(1, 1),
+            BackgroundTransparency = 1,
+            Font = Enum.Font.SourceSans,
+            Text = text,
+            TextSize = 13,
+            TextColor3 = TEXT,
+            ZIndex = 2,
+        }, clip)
+        return
+    end
+    local gap = 18
+    local totalW = textW + gap
+    local scroller = make("Frame", {
+        Size = UDim2.new(0, totalW * 2, 1, 0),
+        BackgroundTransparency = 1,
+        ZIndex = 2,
+    }, clip)
+    for i = 0, 1 do
+        make("TextLabel", {
+            Size = UDim2.fromOffset(textW, 14),
+            Position = UDim2.fromOffset(i * totalW, 0),
+            BackgroundTransparency = 1,
+            Font = Enum.Font.SourceSans,
+            Text = text,
+            TextSize = 13,
+            TextColor3 = TEXT,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            ZIndex = 2,
+        }, scroller)
+    end
+    local function edgeFade(anchorX, posScale, rotation)
+        local fade = make("Frame", {
+            Size = UDim2.fromOffset(8, 14),
+            AnchorPoint = Vector2.new(anchorX, 0),
+            Position = UDim2.fromScale(posScale, 0),
+            BackgroundColor3 = FIELD,
+            BorderSizePixel = 0,
+            ZIndex = 4,
+        }, clip)
+        make("UIGradient", {
+            Transparency = NumberSequence.new({
+                NumberSequenceKeypoint.new(0, 0),
+                NumberSequenceKeypoint.new(1, 1),
+            }),
+            Rotation = rotation,
+        }, fade)
+    end
+    edgeFade(0, 0, 0)
+    edgeFade(1, 1, 180)
+    local duration = totalW / 28
+    task.spawn(function()
+        task.wait(1.2)
+        while clip.Parent do
+            local tween = Services.TweenService:Create(
+                scroller,
+                TweenInfo.new(duration, Enum.EasingStyle.Linear),
+                { Position = UDim2.fromOffset(-totalW, 0) }
+            )
+            tween:Play()
+            tween.Completed:Wait()
+            if not clip.Parent then
+                break
+            end
+            scroller.Position = UDim2.fromOffset(0, 0)
+        end
+    end)
+end
+
 local function addSlot(grid, item, order)
     local slot = make("TextButton", {
         BackgroundColor3 = FIELD,
@@ -1884,17 +1969,7 @@ local function addSlot(grid, item, order)
         ScaleType = Enum.ScaleType.Fit,
         Image = item.Image or "",
     }, slot)
-    make("TextLabel", {
-        Size = UDim2.new(1, -4, 0, 14),
-        Position = UDim2.new(0, 2, 1, -28),
-        BackgroundTransparency = 1,
-        Font = Enum.Font.SourceSans,
-        Text = item.Name,
-        TextSize = 13,
-        TextColor3 = TEXT,
-        TextTruncate = Enum.TextTruncate.AtEnd,
-        ZIndex = 2,
-    }, slot)
+    scrollingName(slot, item.Name)
     make("TextLabel", {
         Size = UDim2.new(1, -4, 0, 12),
         Position = UDim2.new(0, 2, 1, -14),
