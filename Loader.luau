@@ -1,1 +1,1 @@
-loadstring(game:HttpGet("https://raw.githubusercontent.com/mitchellcirey/LT2Scripts/main/MyDashboard.luau?t=" .. tostring(os.time())))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/mitchellcirey/LT2Scripts/main/Dashboard/loader.lua?t=" .. tostring(os.time())))()
