@@ -8,6 +8,7 @@ local Players = Services.Players
 local Workspace = Services.Workspace
 local ReplicatedStorage = Services.ReplicatedStorage
 local HttpService = Services.HttpService
+local RunService = Services.RunService
 
 local Player = Players.LocalPlayer
 
@@ -16,10 +17,16 @@ local CONFIG_FILE = CONFIG_DIR .. "/sawmillloader.json"
 
 local TEXT = Color3.fromRGB(230, 230, 230)
 local MUTED = Color3.fromRGB(160, 160, 160)
-local DARK = Color3.fromRGB(18, 18, 18)
-local BUTTON = Color3.fromRGB(230, 230, 230)
 local FIELD = Color3.fromRGB(58, 58, 58)
 local MENU = Color3.fromRGB(32, 32, 32)
+local START_GREEN = Color3.fromRGB(70, 190, 105)
+local STOP_RED = Color3.fromRGB(210, 70, 70)
+local RING_CYAN = Color3.fromRGB(0, 200, 255)
+local RING_GREEN = Color3.fromRGB(80, 230, 120)
+local MILL_MARK = Color3.fromRGB(255, 210, 60)
+local WOOD_MARK = Color3.fromRGB(255, 140, 40)
+local RING_HEIGHT = 0.06
+local MAX_WOOD_MARKS = 30
 
 local MAX_STUDS = 8
 local SELL_POSITION = Vector3.new(426, 10, 443.71)
@@ -64,13 +71,18 @@ local woodOwner = Player.Name
 local selectedWood = "Oak"
 local selectedSawmill = nil
 
+local armed = false
 local running = false
 local session = 0
 local mounted = false
 local permissionPlayer = nil
 local originalInteract = nil
 local auraFolder = nil
+local auraAt = nil
+local circleConn = nil
 local settingsModule = nil
+local marks = {}
+local watchConns = {}
 
 local root = nil
 local runBtn = nil
@@ -262,6 +274,7 @@ local function getPlayerSawmills(player)
                     table.insert(sawmills, {
                         key = key,
                         name = itemName,
+                        model = model,
                         alert = alert,
                         tpPosition = tpPosition.p,
                         x = model.Settings.DimX.Value,
@@ -373,22 +386,47 @@ local function moveLogs(player, sawmill, rootPart, token)
     end
 end
 
+local rayParams = RaycastParams.new()
+rayParams.FilterType = Enum.RaycastFilterType.Exclude
+
 local function clearAura()
     if auraFolder then
         auraFolder:Destroy()
         auraFolder = nil
     end
+    auraAt = nil
+end
+
+local function groundCenter(rootPart)
+    local ignore = {}
+    if rootPart.Parent then
+        table.insert(ignore, rootPart.Parent)
+    end
+    if auraFolder then
+        table.insert(ignore, auraFolder)
+    end
+    rayParams.FilterDescendantsInstances = ignore
+    local hit = Workspace:Raycast(rootPart.Position, Vector3.new(0, -80, 0), rayParams)
+    local y
+    if hit then
+        y = hit.Position.Y
+    else
+        local humanoid = rootPart.Parent and rootPart.Parent:FindFirstChildOfClass("Humanoid")
+        local hip = humanoid and humanoid.HipHeight or 2
+        y = rootPart.Position.Y - rootPart.Size.Y * 0.5 - hip
+    end
+    return Vector3.new(rootPart.Position.X, y + RING_HEIGHT * 0.5, rootPart.Position.Z)
 end
 
 local function drawAura(centerPosition)
     clearAura()
     local segments = 64
     local thickness = 0.15
-    local height = 0.1
     local folder = Instance.new("Folder")
     folder.Name = "SawmillLoaderAura"
     folder.Parent = Workspace
     auraFolder = folder
+    auraAt = centerPosition
 
     for i = 0, segments - 1 do
         local angle1 = (i / segments) * math.pi * 2
@@ -402,12 +440,64 @@ local function drawAura(centerPosition)
         segment.CanQuery = false
         segment.CanTouch = false
         segment.Material = Enum.Material.Neon
-        segment.Color = Color3.fromRGB(0, 170, 255)
-        segment.Transparency = 0.25
-        segment.Size = Vector3.new(thickness, height, (p2 - p1).Magnitude)
+        segment.Color = running and RING_GREEN or RING_CYAN
+        segment.Transparency = 0.22
+        segment.Size = Vector3.new(thickness, RING_HEIGHT, (p2 - p1).Magnitude)
         segment.CFrame = CFrame.lookAt(midpoint, p2)
         segment.Parent = folder
     end
+end
+
+local function circleActive()
+    return armed or running or mounted
+end
+
+local function stopCircle()
+    if circleConn then
+        circleConn:Disconnect()
+        circleConn = nil
+    end
+    clearAura()
+end
+
+local function ensureCircle()
+    if circleConn then
+        return
+    end
+    circleConn = RunService.Heartbeat:Connect(function()
+        if not circleActive() then
+            local conn = circleConn
+            circleConn = nil
+            if conn then
+                conn:Disconnect()
+            end
+            clearAura()
+            return
+        end
+        local rootPart = currentRoot()
+        if not rootPart then
+            return
+        end
+        local pos = groundCenter(rootPart)
+        local moved = not auraAt
+            or (Vector3.new(pos.X - auraAt.X, 0, pos.Z - auraAt.Z)).Magnitude > 0.4
+            or math.abs(pos.Y - auraAt.Y) > 0.15
+        if moved or not auraFolder then
+            drawAura(pos)
+        end
+        if not auraFolder then
+            return
+        end
+        local color = running and RING_GREEN or RING_CYAN
+        local alpha = 0.22
+        if running then
+            alpha = 0.08 + 0.55 * (0.5 + 0.5 * math.sin(os.clock() * 5))
+        end
+        for _, part in ipairs(auraFolder:GetChildren()) do
+            part.Color = color
+            part.Transparency = alpha
+        end
+    end)
 end
 
 local function restorePermission()
@@ -432,9 +522,101 @@ local function ensurePermission(player)
     end
 end
 
-local function cleanup()
-    clearAura()
-    restorePermission()
+local function clearHighlights()
+    for _, mark in ipairs(marks) do
+        if mark then
+            mark:Destroy()
+        end
+    end
+    table.clear(marks)
+end
+
+local function addMark(model, color)
+    if not model or not model.Parent then
+        return
+    end
+    local mark = Instance.new("Highlight")
+    mark.Name = "SawmillLoaderHighlight"
+    mark.Adornee = model
+    mark.FillColor = color
+    mark.OutlineColor = color
+    mark.FillTransparency = 0.55
+    mark.OutlineTransparency = 0
+    mark.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    mark.Parent = model
+    table.insert(marks, mark)
+end
+
+local function refreshHighlights()
+    clearHighlights()
+    if running then
+        return
+    end
+    local owner = findPlayer(sawmillOwner)
+    if owner and selectedSawmill then
+        for _, mill in ipairs(getPlayerSawmills(owner)) do
+            if mill.key == selectedSawmill then
+                addMark(mill.model, MILL_MARK)
+                break
+            end
+        end
+    end
+    local woodPlayer = findPlayer(woodOwner)
+    local logModels = Workspace:FindFirstChild("LogModels")
+    local rootPart = currentRoot()
+    if not logModels or not woodPlayer then
+        return
+    end
+    local matches = {}
+    for _, log in ipairs(logModels:GetChildren()) do
+        if log:FindFirstChild("Owner") and (log.Owner.Value == nil or log.Owner.Value == woodPlayer) and log.Name ~= "PlaceholderPart" then
+            local treeClass = log:FindFirstChild("TreeClass")
+            if treeClass and treeClass.Value == selectedWood then
+                local target = log:FindFirstChild("Main") or log:FindFirstChildWhichIsA("BasePart")
+                local dist = 0
+                if target and rootPart then
+                    dist = (target.Position - rootPart.Position).Magnitude
+                end
+                table.insert(matches, { model = log, dist = dist })
+            end
+        end
+    end
+    table.sort(matches, function(a, b)
+        return a.dist < b.dist
+    end)
+    for index = 1, math.min(#matches, MAX_WOOD_MARKS) do
+        addMark(matches[index].model, WOOD_MARK)
+    end
+end
+
+local function unwatchHighlights()
+    for _, conn in ipairs(watchConns) do
+        conn:Disconnect()
+    end
+    table.clear(watchConns)
+end
+
+local function watchHighlights()
+    unwatchHighlights()
+    local function hook(folder)
+        if not folder then
+            return
+        end
+        table.insert(watchConns, folder.ChildAdded:Connect(function()
+            task.delay(0.3, function()
+                if not running then
+                    refreshHighlights()
+                end
+            end)
+        end))
+        table.insert(watchConns, folder.ChildRemoved:Connect(function()
+            if not running then
+                refreshHighlights()
+            end
+        end))
+    end
+    hook(Workspace:FindFirstChild("LogModels"))
+    hook(Workspace:FindFirstChild("PlayerModels"))
 end
 
 local function runLoop(token)
@@ -442,19 +624,14 @@ local function runLoop(token)
     if token ~= session then
         return
     end
-    local auraAt = nil
     while token == session do
         local ok, err = pcall(function()
-            local rootPart = currentRoot()
-            local sawmillPlayer = findPlayer(sawmillOwner)
-            local woodPlayer = findPlayer(woodOwner)
-            if rootPart and (not auraAt or (rootPart.Position - auraAt).Magnitude > 1) then
-                drawAura(rootPart.Position)
-                auraAt = rootPart.Position
-            end
             if token ~= session then
                 return
             end
+            local rootPart = currentRoot()
+            local sawmillPlayer = findPlayer(sawmillOwner)
+            local woodPlayer = findPlayer(woodOwner)
             if rootPart and sawmillPlayer and woodPlayer then
                 ensurePermission(sawmillPlayer)
                 if token ~= session then
@@ -495,8 +672,17 @@ local function paintCaption(key, text)
 end
 
 local function paintRun()
-    if runBtn and runBtn.Parent then
-        runBtn.Text = running and "Stop" or "Start"
+    if not (runBtn and runBtn.Parent) then
+        return
+    end
+    if running then
+        runBtn.Text = "Stop"
+        runBtn.BackgroundColor3 = STOP_RED
+        runBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    else
+        runBtn.Text = "Start"
+        runBtn.BackgroundColor3 = START_GREEN
+        runBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
     end
 end
 
@@ -519,15 +705,36 @@ local function sawmillCaption()
     return "None"
 end
 
-local function playerOptions()
-    local names = {}
-    for _, player in ipairs(Players:GetPlayers()) do
-        table.insert(names, player.Name)
+local function playerLabel(player)
+    return player.DisplayName .. "  @" .. player.Name
+end
+
+local function playerCaption(name)
+    local player = findPlayer(name)
+    if player then
+        return playerLabel(player)
     end
-    table.sort(names)
+    if type(name) == "string" and name ~= "" then
+        return "@" .. name
+    end
+    return "None"
+end
+
+local function playerOptions()
+    local rows = {}
+    for _, player in ipairs(Players:GetPlayers()) do
+        table.insert(rows, {
+            id = player.Name,
+            label = playerLabel(player),
+            sort = string.lower(player.DisplayName .. " " .. player.Name),
+        })
+    end
+    table.sort(rows, function(a, b)
+        return a.sort < b.sort
+    end)
     local options = {}
-    for _, name in ipairs(names) do
-        table.insert(options, { id = name, label = name })
+    for _, row in ipairs(rows) do
+        table.insert(options, { id = row.id, label = row.label })
     end
     return options
 end
@@ -724,12 +931,12 @@ local function build(parent)
     runBtn = make("TextButton", {
         Size = UDim2.new(1, 0, 0, ROW_H),
         Position = UDim2.fromOffset(0, 20),
-        BackgroundColor3 = BUTTON,
+        BackgroundColor3 = START_GREEN,
         BorderSizePixel = 0,
         Font = Enum.Font.SourceSans,
         Text = "Start",
         TextSize = 15,
-        TextColor3 = DARK,
+        TextColor3 = Color3.fromRGB(255, 255, 255),
         AutoButtonColor = false,
     }, runBlock)
 
@@ -742,11 +949,12 @@ local function build(parent)
                 saveConfig()
             end
         end
-        paintCaption("sawmillOwner", sawmillOwner)
-        paintCaption("woodOwner", woodOwner)
+        paintCaption("sawmillOwner", playerCaption(sawmillOwner))
+        paintCaption("woodOwner", playerCaption(woodOwner))
         paintCaption("sawmill", sawmillCaption())
         paintCaption("wood", selectedWood)
         paintRun()
+        refreshHighlights()
     end
 
     sawmillOwnerBtn.MouseButton1Click:Connect(function()
@@ -808,6 +1016,8 @@ function startRun()
     running = true
     session = session + 1
     local token = session
+    clearHighlights()
+    ensureCircle()
     paintRun()
     task.spawn(function()
         local ok, err = xpcall(function()
@@ -817,8 +1027,15 @@ function startRun()
             return
         end
         running = false
-        cleanup()
+        restorePermission()
         paintRun()
+        if circleActive() then
+            refreshHighlights()
+        else
+            stopCircle()
+            clearHighlights()
+            unwatchHighlights()
+        end
         if not ok then
             warn("[Jell] Sawmill Loader " .. tostring(err))
         end
@@ -828,16 +1045,43 @@ end
 function stopRun()
     session = session + 1
     running = false
-    cleanup()
+    restorePermission()
     paintRun()
+    if circleActive() then
+        ensureCircle()
+        refreshHighlights()
+    else
+        stopCircle()
+        clearHighlights()
+        unwatchHighlights()
+    end
 end
 
 function api.start()
+    armed = true
+    watchHighlights()
+    if running then
+        ensureCircle()
+        paintRun()
+        return
+    end
     startRun()
 end
 
 function api.stop()
-    stopRun()
+    armed = false
+    session = session + 1
+    running = false
+    restorePermission()
+    paintRun()
+    if mounted then
+        ensureCircle()
+        refreshHighlights()
+    else
+        stopCircle()
+        clearHighlights()
+        unwatchHighlights()
+    end
 end
 
 function api.mount(parent)
@@ -846,6 +1090,11 @@ function api.mount(parent)
     end
     build(parent)
     mounted = true
+    ensureCircle()
+    watchHighlights()
+    if not running then
+        refreshHighlights()
+    end
 end
 
 function api.unmount()
@@ -857,6 +1106,11 @@ function api.unmount()
     end
     runBtn = nil
     captions = {}
+    if not armed and not running then
+        stopCircle()
+        clearHighlights()
+        unwatchHighlights()
+    end
 end
 
 return api

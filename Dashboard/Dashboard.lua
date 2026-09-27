@@ -35,6 +35,12 @@ local SCRIPTS = {
         name = "TreeCutter",
         url = BASE .. "TreeCutter/TreeCutter.lua",
     },
+    {
+        id = "Teleports",
+        name = "Teleports",
+        url = BASE .. "Teleports/Teleports.lua",
+        power = false,
+    },
 }
 
 local GUI_NAME = "JellDashboard"
@@ -628,6 +634,9 @@ local ctx = {
 local states = {}
 
 local function paintToggle(state)
+    if not state.track then
+        return
+    end
     local on = state.started
     if state.toggleOn == on then
         return
@@ -644,7 +653,11 @@ end
 
 local function paint(entry)
     local state = states[entry.id]
-    state.nameBtn.TextColor3 = state.started and GREEN or RED
+    if entry.power == false then
+        state.nameBtn.TextColor3 = state.shown and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(210, 210, 210)
+    else
+        state.nameBtn.TextColor3 = state.started and GREEN or RED
+    end
     state.row.BackgroundColor3 = state.shown and ROW or SIDEBAR
     paintToggle(state)
 end
