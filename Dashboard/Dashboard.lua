@@ -331,6 +331,19 @@ local scriptHost = make("Frame", {
     Visible = false,
 }, content)
 
+local scriptLock = make("TextButton", {
+    Name = "ScriptLock",
+    Size = UDim2.fromScale(1, 1),
+    BackgroundColor3 = Color3.fromRGB(120, 120, 120),
+    BackgroundTransparency = 0.45,
+    BorderSizePixel = 0,
+    Text = "",
+    AutoButtonColor = false,
+    Active = true,
+    Visible = false,
+    ZIndex = 20,
+}, content)
+
 local welcomePage = make("Frame", {
     Name = "Welcome",
     Size = UDim2.new(1, -24, 1, -24),
@@ -649,6 +662,27 @@ local function paintToggle(state)
     }):Play()
 end
 
+local function paintLock()
+    local locked = false
+    if shownId and scriptHost.Visible then
+        local state = states[shownId]
+        for _, entry in ipairs(SCRIPTS) do
+            if entry.id == shownId and entry.power ~= false and state and not state.started then
+                locked = true
+                break
+            end
+        end
+    end
+    scriptLock.Visible = locked
+    if not locked then
+        return
+    end
+    local focused = UserInputService:GetFocusedTextBox()
+    if focused and focused:IsDescendantOf(scriptHost) then
+        focused:ReleaseFocus()
+    end
+end
+
 local function paint(entry)
     local state = states[entry.id]
     if entry.power == false then
@@ -658,6 +692,7 @@ local function paint(entry)
     end
     state.row.BackgroundColor3 = state.shown and ROW or SIDEBAR
     paintToggle(state)
+    paintLock()
 end
 
 local function ensureLoaded(entry)
@@ -752,6 +787,7 @@ local function openScript(entry)
             welcomePage.Visible = true
             scriptHost.Visible = false
         end
+        paintLock()
         warn("[Jell] " .. entry.name .. " failed to open: " .. tostring(err))
     end
 end
