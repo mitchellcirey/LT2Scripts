@@ -185,9 +185,7 @@ local function applyLighting()
         Lighting.Ambient = Color3.fromRGB(255, 255, 255)
         Lighting.OutdoorAmbient = Color3.fromRGB(255, 255, 255)
     end
-    if settings.disableShadows then
-        Lighting.GlobalShadows = false
-    end
+    Lighting.GlobalShadows = not settings.disableShadows
     if settings.disableFog then
         Lighting.FogStart = 0
         Lighting.FogEnd = 1000000
@@ -833,13 +831,14 @@ for index, entry in ipairs(SCRIPTS) do
         LayoutOrder = index,
     }, scriptList)
 
+    local showPower = entry.power ~= false
     local nameBtn = make("TextButton", {
-        Size = UDim2.new(1, -(TOGGLE_W + 8), 1, 0),
+        Size = showPower and UDim2.new(1, -(TOGGLE_W + 8), 1, 0) or UDim2.fromScale(1, 1),
         BackgroundTransparency = 1,
         Font = Enum.Font.SourceSans,
         Text = entry.name,
         TextSize = 15,
-        TextColor3 = RED,
+        TextColor3 = showPower and RED or Color3.fromRGB(210, 210, 210),
         TextXAlignment = Enum.TextXAlignment.Left,
         TextTruncate = Enum.TextTruncate.AtEnd,
         AutoButtonColor = false,
@@ -848,7 +847,10 @@ for index, entry in ipairs(SCRIPTS) do
         PaddingLeft = UDim.new(0, 6),
     }, nameBtn)
 
-    local track, knob = toggleSwitch(row)
+    local track, knob
+    if showPower then
+        track, knob = toggleSwitch(row)
+    end
 
     states[entry.id] = {
         row = row,
@@ -866,9 +868,11 @@ for index, entry in ipairs(SCRIPTS) do
     nameBtn.MouseButton1Click:Connect(function()
         task.spawn(openScript, entry)
     end)
-    track.MouseButton1Click:Connect(function()
-        task.spawn(togglePower, entry)
-    end)
+    if track then
+        track.MouseButton1Click:Connect(function()
+            task.spawn(togglePower, entry)
+        end)
+    end
 end
 
 local function toggleRow(labelText, key, y)
@@ -919,8 +923,6 @@ local function toggleRow(labelText, key, y)
         end
         if key == "alwaysDay" and not settings.alwaysDay then
             restoreAlwaysDay()
-        elseif key == "disableShadows" and not settings.disableShadows then
-            restoreShadows()
         elseif key == "disableFog" and not settings.disableFog then
             restoreFog()
         end

@@ -226,6 +226,7 @@ local chopping = false
 local chopSession = false
 local chopLogs = false
 local teleporting = false
+local moveGen = 0
 local moveMode
 
 local preChopCFrame
@@ -752,8 +753,11 @@ function F.lastInteraction(model)
     return model:FindFirstChild("LastInteraction")
 end
 
-function F.teleportPart(target, goal, token, returnToOrigin)
-    if not target or not target.Parent or not F.alive(token) then
+function F.teleportPart(target, goal, token, returnToOrigin, moveToken)
+    local function going()
+        return F.alive(token) and (moveToken == nil or moveToken == moveGen)
+    end
+    if not target or not target.Parent or not going() then
         return
     end
     local drag = F.findRemote("Interaction", "ClientIsDragging")
@@ -763,6 +767,14 @@ function F.teleportPart(target, goal, token, returnToOrigin)
     end
     local model = target:FindFirstAncestorOfClass("Model") or target.Parent
     local saved = rootPart.CFrame
+    local function finish()
+        if returnToOrigin and F.alive(token) then
+            local back = F.currentRoot()
+            if back then
+                back.CFrame = saved
+            end
+        end
+    end
     local flat = (rootPart.Position - target.Position) * Vector3.new(1, 0, 1)
     if flat.Magnitude > 10 then
         rootPart.CFrame = CFrame.new(target.Position + Vector3.new(0, 3, 0))
@@ -774,13 +786,18 @@ function F.teleportPart(target, goal, token, returnToOrigin)
         for attempt = 1, 5 do
             local deadline = os.clock() + (0.25 * attempt)
             while os.clock() < deadline do
-                if not F.alive(token) or not target.Parent then
+                if not going() or not target.Parent then
+                    finish()
                     return
                 end
                 pcall(function()
                     drag:FireServer(model)
                 end)
                 task.wait()
+            end
+            if not going() then
+                finish()
+                return
             end
             if target.Parent then
                 target.CFrame = goal
@@ -793,6 +810,10 @@ function F.teleportPart(target, goal, token, returnToOrigin)
         task.wait(0.1)
     else
         task.wait(0.05)
+        if not going() then
+            finish()
+            return
+        end
         local touched = F.lastInteraction(model)
         if touched then
             local thread = coroutine.running()
@@ -805,7 +826,7 @@ function F.teleportPart(target, goal, token, returnToOrigin)
             end)
             local loop = task.spawn(function()
                 local deadline = os.clock() + 1
-                while not fired and os.clock() < deadline and F.alive(token) do
+                while not fired and os.clock() < deadline and going() do
                     pcall(function()
                         drag:FireServer(model)
                     end)
@@ -823,12 +844,16 @@ function F.teleportPart(target, goal, token, returnToOrigin)
             end)
         else
             local deadline = os.clock() + 0.5
-            while os.clock() < deadline and F.alive(token) do
+            while os.clock() < deadline and going() do
                 pcall(function()
                     drag:FireServer(model)
                 end)
                 task.wait()
             end
+        end
+        if not going() then
+            finish()
+            return
         end
         if target.Parent then
             target.CFrame = goal
@@ -836,25 +861,26 @@ function F.teleportPart(target, goal, token, returnToOrigin)
         task.wait(0.1)
     end
 
-    if returnToOrigin and F.alive(token) then
-        local back = F.currentRoot()
-        if back then
-            back.CFrame = saved
-        end
-    end
+    finish()
 end
 
-function F.teleportMany(parts, goalFor, token)
+function F.teleportMany(parts, goalFor, token, gen)
+    if gen ~= nil and gen ~= moveGen then
+        return
+    end
     teleporting = true
+    local active = gen or moveGen
     for index, part in ipairs(parts) do
-        if not F.alive(token) then
+        if not F.alive(token) or active ~= moveGen then
             break
         end
         if part and part.Parent then
-            F.teleportPart(part, goalFor(index, part), token, true)
+            F.teleportPart(part, goalFor(index, part), token, true, active)
         end
     end
-    teleporting = false
+    if active == moveGen then
+        teleporting = false
+    end
 end
 
 function F.waitForLogs(treeClass, token)
@@ -2071,8 +2097,8 @@ function F.paintAll()
     F.paintQuantity()
     F.paintAction(getBtn, chopSession, "Start", "Stop")
     F.paintAction(chopBtn, chopLogs, "Start", "Stop")
-    F.paintAction(tpBtn, moveMode == "tp", "TP", "Working")
-    F.paintAction(sellBtn, moveMode == "sell", "Sell", "Selling")
+    F.paintAction(tpBtn, moveMode == "tp", "TP", "Stop")
+    F.paintAction(sellBtn, moveMode == "sell", "Sell", "Stop")
     F.paintToggle(clickBtn, clickToSell)
     F.paintToggle(cutterBtn, cutterOn)
     F.paintToggle(hoverBtn, hoverOn)
@@ -2588,9 +2614,24 @@ function F.build(parent)
         end)
     end)
 
+    local function stopMove()
+        moveGen = moveGen + 1
+        teleporting = false
+        moveMode = nil
+        if started then
+            F.setStatus("Idle")
+            F.paintAll()
+        end
+    end
+
     local function moveLogs(singleSection, busyText)
         F.closeMenu()
         if not F.requireStarted() then
+            return
+        end
+        local mode = singleSection and "sell" or "tp"
+        if moveMode == mode then
+            stopMove()
             return
         end
         if teleporting or chopping or chopLogs or chopSession then
@@ -2603,8 +2644,9 @@ function F.build(parent)
             return
         end
         local token = session
+        local gen = moveGen
         local rootPart = F.currentRoot()
-        moveMode = singleSection and "sell" or "tp"
+        moveMode = mode
         teleporting = true
         F.setStatus(busyText)
         F.paintAll()
@@ -2618,11 +2660,12 @@ function F.build(parent)
                     return now.CFrame * CFrame.new(0, 0, -LOG_DROP)
                 end
                 return CFrame.new(SELL_POSITION)
-            end, token)
-            if token ~= session then
+            end, token, gen)
+            if token ~= session or gen ~= moveGen then
                 return
             end
             moveMode = nil
+            teleporting = false
             if started then
                 F.setStatus("Idle")
                 F.paintAll()

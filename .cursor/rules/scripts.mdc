@@ -14,6 +14,8 @@ Before adding a script, check `SCRIPTS` and the existing folders.
 
 Do not start a script from the loader. The dashboard loads it from GitHub when it is chosen, and starts it only from the power button.
 
+A page that does not run sets `power = false` on its `SCRIPTS` entry. The dashboard leaves off its power switch.
+
 A script module returns `start`, `stop`, `mount`, and `unmount`. `mount` builds into the frame it is given.
 
 ```lua

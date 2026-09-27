@@ -77,6 +77,7 @@ local backdrop = nil
 local menu = nil
 local menuAnchor = nil
 local playerCaption = nil
+local playerField = nil
 local playerBtn = nil
 local addedConn = nil
 local removingConn = nil
@@ -464,7 +465,7 @@ local function refreshPlayers()
         paintChoice(playerCaption, nil, "Select player")
         paintPlayerButton()
     end
-    if menuAnchor then
+    if menuAnchor == playerField then
         closeMenu()
     end
 end
@@ -552,6 +553,7 @@ local function build(parent)
     heading(list, "Player & plot", 5)
 
     local playerBtnField, caption = field(list, "Select player", 6)
+    playerField = playerBtnField
     playerCaption = caption
     paintChoice(playerCaption, nil, "Select player")
     playerBtnField.MouseButton1Click:Connect(function()
@@ -609,6 +611,7 @@ function api.unmount()
         root = nil
     end
     playerCaption = nil
+    playerField = nil
     playerBtn = nil
     selectedTarget = nil
 end
