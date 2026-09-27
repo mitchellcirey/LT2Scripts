@@ -124,7 +124,7 @@ local settings = {
     axeRecovery = true,
 }
 
-local backgroundOpacity = 92
+local backgroundOpacity = 90
 
 local toggleKey = Enum.KeyCode.Tab --Enum.KeyCode.LeftAlt instead maybe??? idk whats better but changable in game
 local capturingKey = false
@@ -215,7 +215,7 @@ local function applySaved(data)
     end
     local savedOpacity = tonumber(data.backgroundOpacity)
     if savedOpacity then
-        backgroundOpacity = math.clamp(math.floor(savedOpacity + 0.5), 20, 100)
+        backgroundOpacity = math.clamp(math.floor(savedOpacity + 0.5), 40, 100)
     end
     toggleKey = keyFromName(data.toggleKey, toggleKey)
 end
@@ -2627,14 +2627,14 @@ local sliderTrack = make("Frame", {
     BorderSizePixel = 0,
 }, sliderHit)
 local sliderFill = make("Frame", {
-    Size = UDim2.new((backgroundOpacity - 20) / 80, 0, 1, 0),
+    Size = UDim2.new((backgroundOpacity - 40) / 60, 0, 1, 0),
     BackgroundColor3 = Color3.fromRGB(230, 230, 230),
     BorderSizePixel = 0,
 }, sliderTrack)
 
 local function paintOpacity()
     opacityValue.Text = tostring(backgroundOpacity)
-    sliderFill.Size = UDim2.new((backgroundOpacity - 20) / 80, 0, 1, 0)
+    sliderFill.Size = UDim2.new((backgroundOpacity - 40) / 60, 0, 1, 0)
     Theme.applyBackground()
 end
 
@@ -2649,7 +2649,7 @@ local function opacityFromMouse()
         x -= Services.GuiService:GetGuiInset().X
     end
     local alpha = math.clamp((x - sliderTrack.AbsolutePosition.X) / width, 0, 1)
-    backgroundOpacity = math.clamp(math.floor(20 + alpha * 80 + 0.5), 20, 100)
+    backgroundOpacity = math.clamp(math.floor(40 + alpha * 60 + 0.5), 40, 100)
     paintOpacity()
 end
 
