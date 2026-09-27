@@ -823,7 +823,22 @@ local function paintSwitch(track, knob, on)
     }):Play()
 end
 
+local rank = {}
+local listOrder = {}
 for index, entry in ipairs(SCRIPTS) do
+    rank[entry] = index
+    listOrder[index] = entry
+end
+table.sort(listOrder, function(a, b)
+    local aPage = a.power == false
+    local bPage = b.power == false
+    if aPage ~= bPage then
+        return aPage
+    end
+    return rank[a] < rank[b]
+end)
+
+for index, entry in ipairs(listOrder) do
     local row = make("Frame", {
         Size = UDim2.new(1, 0, 0, 24),
         BackgroundColor3 = SIDEBAR,
