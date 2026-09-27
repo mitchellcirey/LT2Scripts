@@ -801,6 +801,19 @@ local closeBtn = make("TextButton", {
 }, titleBar)
 bindHover(closeBtn)
 
+local ferryHeader = make("TextLabel", {
+    Name = "FerryTimer",
+    Size = UDim2.fromOffset(168, 28),
+    Position = UDim2.new(1, -200, 0, 0),
+    BackgroundTransparency = 1,
+    Font = Enum.Font.SourceSans,
+    Text = "Ferry: --",
+    TextSize = 14,
+    TextColor3 = Color3.fromRGB(210, 210, 210),
+    TextXAlignment = Enum.TextXAlignment.Right,
+    Visible = false,
+}, titleBar)
+
 local body = make("Frame", {
     Size = UDim2.new(1, 0, 1, -28),
     Position = UDim2.fromOffset(0, 28),
@@ -928,11 +941,59 @@ make("TextLabel", {
     TextXAlignment = Enum.TextXAlignment.Left,
 }, welcomePage)
 
-titleRule(welcomePage, "GitHub", 78, 22, 15, Color3.fromRGB(210, 210, 210))
+titleRule(welcomePage, "Ferry", 68, 22, 15, Color3.fromRGB(210, 210, 210))
+
+local ferryHome = make("TextLabel", {
+    Name = "FerryTimer",
+    Size = UDim2.new(1, 0, 0, 22),
+    Position = UDim2.fromOffset(0, 94),
+    BackgroundTransparency = 1,
+    Font = Enum.Font.SourceSans,
+    Text = "Ferry: --",
+    TextSize = 15,
+    TextColor3 = Color3.fromRGB(210, 210, 210),
+    TextXAlignment = Enum.TextXAlignment.Left,
+}, welcomePage)
+
+local ferryConn
+local ferryWarn = Color3.fromRGB(100, 155, 255)
+local ferryText = Color3.fromRGB(210, 210, 210)
+
+local function applyFerry(text, color)
+    ferryHeader.Text = text
+    ferryHeader.TextColor3 = color
+    ferryHome.Text = text
+    ferryHome.TextColor3 = color
+end
+
+task.spawn(function()
+    local ferry = Services.Workspace:WaitForChild("Ferry", 10)
+    if not ferry then
+        return
+    end
+    local timeToDeparture = ferry:WaitForChild("TimeToDeparture", 10)
+    if not timeToDeparture then
+        return
+    end
+    local function updateFerry()
+        local val = timeToDeparture.Value
+        if val <= 0 then
+            applyFerry("Ferry has Departed", ferryText)
+        elseif val <= 10 then
+            applyFerry("Ferry Departs: " .. val .. "s", ferryWarn)
+        else
+            applyFerry("Ferry Departs: " .. val .. "s", ferryText)
+        end
+    end
+    updateFerry()
+    ferryConn = timeToDeparture.Changed:Connect(updateFerry)
+end)
+
+titleRule(welcomePage, "GitHub", 146, 22, 15, Color3.fromRGB(210, 210, 210))
 
 local githubBox = make("TextBox", {
     Size = UDim2.new(1, 0, 0, 22),
-    Position = UDim2.fromOffset(0, 104),
+    Position = UDim2.fromOffset(0, 172),
     BackgroundColor3 = Color3.fromRGB(58, 58, 58),
     BorderSizePixel = 0,
     ClearTextOnFocus = false,
@@ -1051,12 +1112,12 @@ local function homeAction(labelText, buttonText, y, action)
     end)
 end
 
-titleRule(welcomePage, "Server Management", 146, 22, 15, Color3.fromRGB(210, 210, 210))
-homeAction("Rejoin server", "Rejoin", 176, rejoinServer)
-homeAction("Descending", "Join", 208, function()
+titleRule(welcomePage, "Server Management", 214, 22, 15, Color3.fromRGB(210, 210, 210))
+homeAction("Rejoin server", "Rejoin", 244, rejoinServer)
+homeAction("Descending", "Join", 276, function()
     serverHop("Asc")
 end)
-homeAction("Ascending", "Join", 240, function()
+homeAction("Ascending", "Join", 308, function()
     serverHop("Desc")
 end)
 
@@ -1912,6 +1973,7 @@ local homeShown = true
 local function paintHome()
     homeBtn.Font = homeShown and Enum.Font.SourceSansBold or Enum.Font.SourceSans
     homeBtn.TextColor3 = homeShown and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(210, 210, 210)
+    ferryHeader.Visible = not homeShown
 end
 
 local function showSettings()
@@ -2492,6 +2554,10 @@ local function shutdown()
     disconnectShared(ID.JUMP_CONN)
     disconnectShared(ID.NOCLIP_CONN)
     releaseNoclipWatch()
+    if ferryConn then
+        ferryConn:Disconnect()
+        ferryConn = nil
+    end
     screenGui:Destroy()
 end
 
