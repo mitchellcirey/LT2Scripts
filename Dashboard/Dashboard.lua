@@ -95,6 +95,10 @@ local shownId
 
 _G.JellSawmillCircleOk = false
 _G.JellSawmillHighlightOk = false
+_G.JellSawmillMoving = false
+if type(_G.JellSawmillStop) == "function" then
+    pcall(_G.JellSawmillStop)
+end
 
 local function clearSawmillRing()
     local world = Services.Workspace
@@ -439,9 +443,21 @@ make("UIPadding", {
     PaddingLeft = UDim.new(0, 6),
 }, githubBox)
 
-local settingsBtn = make("TextButton", {
+local homeBtn = make("TextButton", {
     Size = UDim2.new(1, -16, 0, 24),
     Position = UDim2.fromOffset(8, 8),
+    BackgroundColor3 = Color3.fromRGB(58, 58, 58),
+    BorderSizePixel = 0,
+    Font = Enum.Font.SourceSansBold,
+    Text = "Home",
+    TextSize = 15,
+    TextColor3 = Color3.fromRGB(255, 255, 255),
+    AutoButtonColor = false,
+}, sidebar)
+
+local settingsBtn = make("TextButton", {
+    Size = UDim2.new(1, -16, 0, 24),
+    Position = UDim2.fromOffset(8, 40),
     BackgroundColor3 = Color3.fromRGB(58, 58, 58),
     BorderSizePixel = 0,
     Font = Enum.Font.SourceSans,
@@ -454,7 +470,7 @@ local settingsBtn = make("TextButton", {
 local scriptsOpen = true
 local scriptsBtn = make("TextButton", {
     Size = UDim2.new(1, -16, 0, 22),
-    Position = UDim2.fromOffset(8, 40),
+    Position = UDim2.fromOffset(8, 72),
     BackgroundTransparency = 1,
     Font = Enum.Font.SourceSansBold,
     Text = "Scripts",
@@ -475,8 +491,8 @@ local scriptsChevron = make("TextLabel", {
 }, scriptsBtn)
 
 local scriptList = make("ScrollingFrame", {
-    Size = UDim2.new(1, -8, 1, -70),
-    Position = UDim2.fromOffset(4, 66),
+    Size = UDim2.new(1, -8, 1, -102),
+    Position = UDim2.fromOffset(4, 98),
     BackgroundTransparency = 1,
     BorderSizePixel = 0,
     ScrollBarThickness = 3,
@@ -799,15 +815,10 @@ local function ensureLoaded(entry)
 end
 
 local homeShown = true
-local homeRow
-local homeBtn
 
 local function paintHome()
-    if not homeBtn then
-        return
-    end
+    homeBtn.Font = homeShown and Enum.Font.SourceSansBold or Enum.Font.SourceSans
     homeBtn.TextColor3 = homeShown and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(210, 210, 210)
-    homeRow.BackgroundColor3 = homeShown and ROW or SIDEBAR
 end
 
 local function showSettings()
@@ -985,27 +996,6 @@ table.sort(listOrder, function(a, b)
     end
     return rank[a] < rank[b]
 end)
-
-homeRow = make("Frame", {
-    Size = UDim2.new(1, 0, 0, 24),
-    BackgroundColor3 = SIDEBAR,
-    BorderSizePixel = 0,
-    LayoutOrder = 0,
-}, scriptList)
-homeBtn = make("TextButton", {
-    Size = UDim2.fromScale(1, 1),
-    BackgroundTransparency = 1,
-    Font = Enum.Font.SourceSans,
-    Text = "Home",
-    TextSize = 15,
-    TextColor3 = Color3.fromRGB(210, 210, 210),
-    TextXAlignment = Enum.TextXAlignment.Left,
-    TextTruncate = Enum.TextTruncate.AtEnd,
-    AutoButtonColor = false,
-}, homeRow)
-make("UIPadding", {
-    PaddingLeft = UDim.new(0, 6),
-}, homeBtn)
 
 local function showHome()
     settingsPage.Visible = false

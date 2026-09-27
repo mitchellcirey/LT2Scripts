@@ -93,6 +93,13 @@ local menuAnchor = nil
 local startRun
 local stopRun
 
+if type(_G.JellSawmillStop) == "function" then
+    pcall(_G.JellSawmillStop)
+end
+local epoch = {}
+_G.JellSawmillEpoch = epoch
+_G.JellSawmillMoving = false
+
 local function round(val)
     return math.floor((val * 100) + 0.5) / 100
 end
@@ -340,38 +347,47 @@ local function sortedSize(size)
     return dims[1], dims[2], dims[3]
 end
 
-local function logFits(log, woodSection, sawmill, props)
-    local size = woodSection.Size
-    local ok, bounds = pcall(function()
-        local _, boundsSize = log:GetBoundingBox()
-        return boundsSize
-    end)
-    if ok and typeof(bounds) == "Vector3" then
-        size = Vector3.new(
-            math.max(size.X, bounds.X),
-            math.max(size.Y, bounds.Y),
-            math.max(size.Z, bounds.Z)
-        )
+local function singleSection(log)
+    if log:FindFirstChild("InnerWood", true) then
+        return nil
     end
-    local thickness, width, length = sortedSize(size)
-    if length > props.length + 0.15 then
+    local section = nil
+    for _, desc in ipairs(log:GetDescendants()) do
+        if desc.Name == "Tree Weld" then
+            return nil
+        end
+        if desc.Name == "WoodSection" and desc:IsA("BasePart") then
+            if section then
+                return nil
+            end
+            section = desc
+        end
+    end
+    return section
+end
+
+local function logFits(section, props)
+    local thickness, width, length = sortedSize(section.Size)
+    if length > props.length then
         return false
     end
-    if thickness > props.x + 0.05 or width > props.y + 0.05 then
+    if thickness > props.x or width > props.y then
         return false
     end
     if thickness * width < 0.24 then
         return false
     end
-    local woodVolume = thickness * width * length
-    local sawmillSize = sawmill.x * sawmill.y * 0.25
-    if sawmillSize > 0 and woodVolume < sawmillSize then
-        return false
-    end
     return true
 end
 
+local function canMove()
+    return running and _G.JellSawmillMoving == true and _G.JellSawmillEpoch == epoch
+end
+
 local function moveLogs(player, sawmill, rootPart, token)
+    if not canMove() or token ~= session then
+        return
+    end
     local logModels = Workspace:FindFirstChild("LogModels")
     if not logModels then
         return
@@ -382,25 +398,24 @@ local function moveLogs(player, sawmill, rootPart, token)
     end
 
     for _, log in pairs(logModels:getChildren()) do
-        if token ~= session then
+        if token ~= session or not canMove() then
             return
         end
         if log:FindFirstChild("Owner") and (log.Owner.Value == nil or log.Owner.Value == player) and log.Name ~= "PlaceholderPart" then
-            local woodSection = log:findFirstChild("WoodSection")
-            local treeClass = log:findFirstChild("TreeClass")
-            local target = log:FindFirstChild("Main") or log:FindFirstChildWhichIsA("BasePart")
-            if woodSection and target and not (treeClass and treeClass.Value ~= selectedWood) then
+            local woodSection = singleSection(log)
+            local treeClass = log:FindFirstChild("TreeClass")
+            local target = log:FindFirstChild("Main") or woodSection
+            if woodSection and target and treeClass and treeClass.Value == selectedWood then
                 local flat = (rootPart.Position - target.Position) * Vector3.new(1, 0, 1)
-                if flat.Magnitude <= MAX_STUDS and logFits(log, woodSection, sawmill, props) then
+                if flat.Magnitude <= MAX_STUDS and logFits(woodSection, props) and canMove() and token == session then
                     local _, _, length = sortedSize(woodSection.Size)
-                    local timeout = length / 2
                     woodSection.CFrame = CFrame.new(sawmill.tpPosition) * sawmill.rot
                     local remote = ReplicatedStorage:FindFirstChild("Interaction")
                     remote = remote and remote:FindFirstChild("ClientIsDragging")
-                    if remote then
+                    if remote and canMove() then
                         remote:FireServer(log)
                     end
-                    if not sleep(timeout, token) then
+                    if not sleep(length / 2, token) then
                         return
                     end
                 end
@@ -687,7 +702,7 @@ local function runLoop(token)
     if token ~= session then
         return
     end
-    while token == session do
+    while token == session and canMove() do
         local ok, err = pcall(function()
             if token ~= session then
                 return
@@ -1108,6 +1123,7 @@ function startRun()
         return
     end
     running = true
+    _G.JellSawmillMoving = true
     session = session + 1
     local token = session
     clearHighlights()
@@ -1121,6 +1137,7 @@ function startRun()
             return
         end
         running = false
+        _G.JellSawmillMoving = false
         restorePermission()
         paintRun()
         if armed then
@@ -1142,6 +1159,7 @@ end
 function stopRun()
     session = session + 1
     running = false
+    _G.JellSawmillMoving = false
     restorePermission()
     paintRun()
     if armed then
@@ -1170,6 +1188,7 @@ function api.stop()
     armed = false
     session = session + 1
     running = false
+    _G.JellSawmillMoving = false
     restorePermission()
     paintRun()
     stopCircle()
@@ -1209,5 +1228,16 @@ function api.unmount()
 end
 
 clearHighlights()
+
+_G.JellSawmillStop = function()
+    running = false
+    session = session + 1
+    _G.JellSawmillMoving = false
+    _G.JellSawmillCircleOk = false
+    _G.JellSawmillHighlightOk = false
+    if _G.JellSawmillEpoch == epoch then
+        _G.JellSawmillEpoch = nil
+    end
+end
 
 return api
