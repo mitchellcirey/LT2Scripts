@@ -20,6 +20,8 @@ local BUTTON = Color3.fromRGB(230, 230, 230)
 local FIELD = Color3.fromRGB(58, 58, 58)
 local LABEL = Color3.fromRGB(210, 210, 210)
 local GREEN = Color3.fromRGB(70, 190, 105)
+local CONFIRM = Color3.fromRGB(160, 40, 40)
+local CONFIRM_TEXT = Color3.fromRGB(255, 160, 160)
 local STROKE = Color3.fromRGB(70, 70, 70)
 local MENU = Color3.fromRGB(32, 32, 32)
 local HOVER = Color3.fromRGB(120, 120, 120)
@@ -48,6 +50,8 @@ local lassoStart = nil
 local clickFill = false
 local filling = false
 local deleting = false
+local deleteConfirm = false
+local deleteResetThread = nil
 local busy = false
 local runToken = 0
 local fillToken = 0
@@ -373,16 +377,28 @@ local function drawOutlines()
     })
     for _, model in ipairs(chosen) do
         if model and model.Parent then
-            local mark = make("Highlight", {
-                Name = "BPFillaOutline",
-                Adornee = model,
-                FillColor = OUTLINE,
-                OutlineColor = OUTLINE,
-                FillTransparency = 0.4,
-                OutlineTransparency = 0,
-                DepthMode = Enum.HighlightDepthMode.AlwaysOnTop,
-                Enabled = pageOpen,
-            }, outlineFolder)
+            local mark
+            if isBlueprint(model) then
+                mark = make("SelectionBox", {
+                    Name = "BPFillaOutline",
+                    Adornee = model,
+                    Color3 = OUTLINE,
+                    SurfaceColor3 = OUTLINE,
+                    SurfaceTransparency = 0.4,
+                    LineThickness = 0.04,
+                }, outlineFolder)
+            else
+                mark = make("Highlight", {
+                    Name = "BPFillaOutline",
+                    Adornee = model,
+                    FillColor = OUTLINE,
+                    OutlineColor = OUTLINE,
+                    FillTransparency = 0.4,
+                    OutlineTransparency = 0,
+                    DepthMode = Enum.HighlightDepthMode.AlwaysOnTop,
+                    Enabled = pageOpen,
+                }, outlineFolder)
+            end
             table.insert(outlineConns, model.Destroying:Connect(function()
                 if mark.Parent then
                     mark:Destroy()
@@ -858,14 +874,32 @@ local function startFill()
 end
 
 local function paintDelete()
-    if deleteBtn and deleteBtn.Parent then
-        deleteBtn.Text = deleting and "Stop" or "Delete"
+    if not (deleteBtn and deleteBtn.Parent) then
+        return
+    end
+    if deleteConfirm and not deleting then
+        deleteBtn.Text = "Confirm?"
+        deleteBtn.BackgroundColor3 = CONFIRM
+        deleteBtn.TextColor3 = CONFIRM_TEXT
+        return
+    end
+    deleteBtn.Text = deleting and "Stop" or "Delete"
+    deleteBtn.BackgroundColor3 = BUTTON
+    deleteBtn.TextColor3 = DARK
+end
+
+local function clearDeleteConfirm()
+    deleteConfirm = false
+    if deleteResetThread then
+        task.cancel(deleteResetThread)
+        deleteResetThread = nil
     end
 end
 
 local function stopDelete()
     deleteToken += 1
     deleting = false
+    clearDeleteConfirm()
     paintDelete()
 end
 
@@ -1573,6 +1607,27 @@ local function build(parent)
         if not started then
             return
         end
+        if deleting then
+            startDelete()
+            return
+        end
+        if not deleteConfirm then
+            deleteConfirm = true
+            paintDelete()
+            if deleteResetThread then
+                task.cancel(deleteResetThread)
+            end
+            deleteResetThread = task.delay(3, function()
+                deleteResetThread = nil
+                if mounted and deleteConfirm and not deleting then
+                    deleteConfirm = false
+                    paintDelete()
+                end
+            end)
+            return
+        end
+        clearDeleteConfirm()
+        paintDelete()
         startDelete()
     end)
 
@@ -1653,6 +1708,7 @@ end
 
 function api.unmount()
     mounted = false
+    clearDeleteConfirm()
     closeMenu()
     hideLasso()
     disconnectAll()

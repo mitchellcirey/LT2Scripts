@@ -34,11 +34,14 @@ local landUpdatePending = false
 local wiping = false
 local wipeConfirm = false
 local wipeResetThread = nil
+local deleteConfirm = false
+local deleteResetThread = nil
 
 local saveBtn = nil
 local claimBtn = nil
 local expandBtn = nil
 local wipeBtn = nil
+local deleteBtn = nil
 
 local function make(className, props, parent)
     local inst = Instance.new(className)
@@ -412,6 +415,47 @@ local function deleteSoldSign(button)
     flash(button, "Deleted", "Delete")
 end
 
+local function resetDelete()
+    deleteConfirm = false
+    if deleteResetThread then
+        task.cancel(deleteResetThread)
+        deleteResetThread = nil
+    end
+    if deleteBtn and deleteBtn.Parent then
+        deleteBtn.Text = "Delete"
+        setEnabled(deleteBtn, true)
+    end
+end
+
+local function onDeleteClick()
+    if not isEnabled(deleteBtn) then
+        return
+    end
+    if not deleteConfirm then
+        deleteConfirm = true
+        deleteBtn.BackgroundColor3 = CONFIRM
+        deleteBtn.TextColor3 = CONFIRM_TEXT
+        deleteBtn.Text = "Confirm?"
+        if deleteResetThread then
+            task.cancel(deleteResetThread)
+        end
+        deleteResetThread = task.delay(3, function()
+            deleteResetThread = nil
+            if mounted then
+                resetDelete()
+            end
+        end)
+        return
+    end
+    if deleteResetThread then
+        task.cancel(deleteResetThread)
+        deleteResetThread = nil
+    end
+    deleteConfirm = false
+    setEnabled(deleteBtn, true)
+    deleteSoldSign(deleteBtn)
+end
+
 local function resetWipe()
     wipeConfirm = false
     if wipeResetThread then
@@ -546,14 +590,12 @@ local function build(parent)
     heading(list, "Property", 3)
     claimBtn = actionRow(list, "Claim free land", "Claim", 4)
     expandBtn = actionRow(list, "Max land", "Expand", 5)
-    local deleteBtn = actionRow(list, "Delete sold sign", "Delete", 6)
+    deleteBtn = actionRow(list, "Delete sold sign", "Delete", 6)
     wipeBtn = actionRow(list, "Wipe plot", "Wipe", 7, RED)
 
     claimBtn.MouseButton1Click:Connect(claimLand)
     expandBtn.MouseButton1Click:Connect(expandLand)
-    deleteBtn.MouseButton1Click:Connect(function()
-        deleteSoldSign(deleteBtn)
-    end)
+    deleteBtn.MouseButton1Click:Connect(onDeleteClick)
     wipeBtn.MouseButton1Click:Connect(onWipeClick)
 end
 
@@ -584,9 +626,14 @@ function api.unmount()
     wiping = false
     landUpdatePending = false
     wipeConfirm = false
+    deleteConfirm = false
     if wipeResetThread then
         task.cancel(wipeResetThread)
         wipeResetThread = nil
+    end
+    if deleteResetThread then
+        task.cancel(deleteResetThread)
+        deleteResetThread = nil
     end
     disconnectAll()
     if root then
@@ -597,6 +644,7 @@ function api.unmount()
     claimBtn = nil
     expandBtn = nil
     wipeBtn = nil
+    deleteBtn = nil
 end
 
 return api

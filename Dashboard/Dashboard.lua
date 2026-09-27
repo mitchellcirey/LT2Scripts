@@ -887,16 +887,43 @@ local scriptHost = make("Frame", {
     Visible = false,
 }, content)
 
-local enableNote = make("TextLabel", {
+local enableNote = make("Frame", {
     Name = "EnableNote",
-    Size = UDim2.fromScale(1, 1),
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    AutomaticSize = Enum.AutomaticSize.XY,
+    Size = UDim2.fromOffset(0, 0),
+    Position = UDim2.fromScale(0.5, 0.5),
+    BackgroundTransparency = 1,
+    Visible = false,
+}, content)
+make("UIListLayout", {
+    FillDirection = Enum.FillDirection.Vertical,
+    HorizontalAlignment = Enum.HorizontalAlignment.Center,
+    Padding = UDim.new(0, 8),
+    SortOrder = Enum.SortOrder.LayoutOrder,
+}, enableNote)
+make("TextLabel", {
+    AutomaticSize = Enum.AutomaticSize.XY,
+    Size = UDim2.fromOffset(0, 0),
     BackgroundTransparency = 1,
     Font = Enum.Font.SourceSans,
     Text = "Please enable this script",
     TextSize = 18,
     TextColor3 = Color3.fromRGB(210, 210, 210),
-    Visible = false,
-}, content)
+    LayoutOrder = 1,
+}, enableNote)
+local enableBtn = make("TextButton", {
+    Size = UDim2.fromOffset(88, 22),
+    BackgroundColor3 = Theme.BUTTON_BG,
+    BorderSizePixel = 0,
+    Font = Enum.Font.SourceSans,
+    Text = "Enable",
+    TextSize = 15,
+    TextColor3 = Theme.TEXT,
+    AutoButtonColor = false,
+    LayoutOrder = 2,
+}, enableNote)
+bindHover(enableBtn)
 
 local welcomePage = make("Frame", {
     Name = "Welcome",
@@ -2237,6 +2264,14 @@ local function togglePower(entry)
         warn("[Jell] " .. entry.name .. " failed to start: " .. tostring(err))
     end
 end
+
+enableBtn.MouseButton1Click:Connect(function()
+    local entry = shownEntry()
+    if not entry then
+        return
+    end
+    task.spawn(togglePower, entry)
+end)
 
 local function toggleSwitch(parent)
     local track = make("TextButton", {
