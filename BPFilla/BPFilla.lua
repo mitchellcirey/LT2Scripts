@@ -23,7 +23,7 @@ local GREEN = Color3.fromRGB(70, 190, 105)
 local STROKE = Color3.fromRGB(70, 70, 70)
 local MENU = Color3.fromRGB(32, 32, 32)
 local HOVER = Color3.fromRGB(120, 120, 120)
-local OUTLINE = Color3.fromRGB(74, 120, 255)
+local OUTLINE = Color3.fromRGB(0, 255, 255)
 
 local ROW_H = 22
 local BTN_W = 88
@@ -336,6 +336,11 @@ local function applyOutlineVisibility()
         return
     end
     outlineFolder.Parent = pageOpen and outlineHost() or nil
+    for _, mark in ipairs(outlineFolder:GetChildren()) do
+        if mark:IsA("Highlight") then
+            mark.Enabled = pageOpen
+        end
+    end
 end
 
 local function clearOutlines()
@@ -368,16 +373,19 @@ local function drawOutlines()
     })
     for _, model in ipairs(chosen) do
         if model and model.Parent then
-            local box = make("SelectionBox", {
+            local mark = make("Highlight", {
+                Name = "BPFillaOutline",
                 Adornee = model,
-                Color3 = OUTLINE,
-                LineThickness = 0.03,
-                SurfaceColor3 = OUTLINE,
-                SurfaceTransparency = 0.75,
+                FillColor = OUTLINE,
+                OutlineColor = OUTLINE,
+                FillTransparency = 0.4,
+                OutlineTransparency = 0,
+                DepthMode = Enum.HighlightDepthMode.AlwaysOnTop,
+                Enabled = pageOpen,
             }, outlineFolder)
             table.insert(outlineConns, model.Destroying:Connect(function()
-                if box.Parent then
-                    box:Destroy()
+                if mark.Parent then
+                    mark:Destroy()
                 end
                 dropBlueprint(model)
             end))
