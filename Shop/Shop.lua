@@ -5,6 +5,7 @@ local Services = setmetatable({}, {
 })
 
 local Players = Services.Players
+local UserInputService = Services.UserInputService
 local Workspace = Services.Workspace
 local ReplicatedStorage = Services.ReplicatedStorage
 local RunService = Services.RunService
@@ -253,7 +254,8 @@ local purchaseBtn = nil
 local blueprintBtn = nil
 local rukiryBtn = nil
 local poeBtn = nil
-local quantityBox = nil
+local quantityValue = nil
+local quantityFill = nil
 
 local function make(className, props, parent)
     local inst = Instance.new(className)
@@ -1431,14 +1433,17 @@ local function selectedItem()
     return nil
 end
 
-local function readQuantity()
-    if quantityBox and quantityBox.Parent then
-        local n = tonumber(quantityBox.Text)
-        if n then
-            quantity = math.clamp(math.floor(n), 1, 100)
-        end
-        quantityBox.Text = tostring(quantity)
+local function paintQuantity()
+    quantity = math.clamp(math.floor(quantity + 0.5), 1, 100)
+    if quantityValue and quantityValue.Parent then
+        quantityValue.Text = tostring(quantity)
     end
+    if quantityFill and quantityFill.Parent then
+        quantityFill.Size = UDim2.new((quantity - 1) / 99, 0, 1, 0)
+    end
+end
+
+local function readQuantity()
     return quantity
 end
 
@@ -1622,16 +1627,35 @@ local function watchBlueprints()
 end
 
 local function heading(parent, text, order)
-    make("TextLabel", {
+    local row = make("Frame", {
         Size = UDim2.new(1, 0, 0, 18),
+        BackgroundTransparency = 1,
+        LayoutOrder = order,
+    }, parent)
+    local label = make("TextLabel", {
+        AutomaticSize = Enum.AutomaticSize.X,
+        Size = UDim2.new(0, 0, 1, 0),
         BackgroundTransparency = 1,
         Font = Enum.Font.SourceSans,
         Text = text,
         TextSize = 15,
         TextColor3 = TEXT,
         TextXAlignment = Enum.TextXAlignment.Left,
-        LayoutOrder = order,
-    }, parent)
+    }, row)
+    local line = make("Frame", {
+        AnchorPoint = Vector2.new(0, 0.5),
+        Size = UDim2.new(1, 0, 0, 1),
+        Position = UDim2.new(0, 0, 0.5, 0),
+        BackgroundColor3 = Color3.fromRGB(70, 70, 70),
+        BorderSizePixel = 0,
+    }, row)
+    local function place()
+        local gap = label.AbsoluteSize.X + 8
+        line.Position = UDim2.new(0, gap, 0.5, 0)
+        line.Size = UDim2.new(1, -gap, 0, 1)
+    end
+    label:GetPropertyChangedSignal("AbsoluteSize"):Connect(place)
+    task.defer(place)
 end
 
 local function actionRow(parent, labelText, buttonText, order)
@@ -1926,12 +1950,12 @@ local function build(parent)
     paintSlots()
 
     local qtyRow = make("Frame", {
-        Size = UDim2.new(1, 0, 0, ROW_H),
+        Size = UDim2.new(1, 0, 0, 36),
         BackgroundTransparency = 1,
         LayoutOrder = 4,
     }, list)
     make("TextLabel", {
-        Size = UDim2.new(1, -(BTN_W + 8), 1, 0),
+        Size = UDim2.new(1, -40, 0, 16),
         BackgroundTransparency = 1,
         Font = Enum.Font.SourceSans,
         Text = "Quantity",
@@ -1939,20 +1963,61 @@ local function build(parent)
         TextColor3 = LABEL,
         TextXAlignment = Enum.TextXAlignment.Left,
     }, qtyRow)
-    quantityBox = make("TextBox", {
-        Size = UDim2.fromOffset(BTN_W, ROW_H),
-        Position = UDim2.new(1, -BTN_W, 0, 0),
-        BackgroundColor3 = FIELD,
-        BorderSizePixel = 0,
-        ClearTextOnFocus = false,
+    quantityValue = make("TextLabel", {
+        Size = UDim2.fromOffset(36, 16),
+        Position = UDim2.new(1, -36, 0, 0),
+        BackgroundTransparency = 1,
         Font = Enum.Font.SourceSans,
         Text = tostring(quantity),
         TextSize = 15,
         TextColor3 = TEXT,
+        TextXAlignment = Enum.TextXAlignment.Right,
     }, qtyRow)
-    quantityBox.FocusLost:Connect(function()
-        readQuantity()
+    local sliderHit = make("TextButton", {
+        Size = UDim2.new(1, 0, 0, 16),
+        Position = UDim2.fromOffset(0, 18),
+        BackgroundTransparency = 1,
+        Text = "",
+        AutoButtonColor = false,
+    }, qtyRow)
+    local sliderTrack = make("Frame", {
+        Size = UDim2.new(1, 0, 0, 4),
+        Position = UDim2.new(0, 0, 0.5, -2),
+        BackgroundColor3 = FIELD,
+        BorderSizePixel = 0,
+    }, sliderHit)
+    quantityFill = make("Frame", {
+        Size = UDim2.new((quantity - 1) / 99, 0, 1, 0),
+        BackgroundColor3 = BUTTON,
+        BorderSizePixel = 0,
+    }, sliderTrack)
+    local sliding = false
+    local function quantityFromMouse()
+        local width = sliderTrack.AbsoluteSize.X
+        if width <= 0 then
+            return
+        end
+        local pct = math.clamp((UserInputService:GetMouseLocation().X - sliderTrack.AbsolutePosition.X) / width, 0, 1)
+        quantity = 1 + math.floor(pct * 99 + 0.5)
+        paintQuantity()
         updatePurchase()
+    end
+    sliderHit.InputBegan:Connect(function(input)
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1 then
+            return
+        end
+        sliding = true
+        quantityFromMouse()
+    end)
+    connect(UserInputService.InputChanged, function(input)
+        if sliding and input.UserInputType == Enum.UserInputType.MouseMovement then
+            quantityFromMouse()
+        end
+    end)
+    connect(UserInputService.InputEnded, function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            sliding = false
+        end
     end)
 
     purchaseBtn = actionRow(list, "Purchase", "Buy", 5)
@@ -2050,7 +2115,8 @@ function api.unmount()
     blueprintBtn = nil
     rukiryBtn = nil
     poeBtn = nil
-    quantityBox = nil
+    quantityValue = nil
+    quantityFill = nil
 end
 
 return api

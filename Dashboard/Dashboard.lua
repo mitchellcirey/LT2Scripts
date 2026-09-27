@@ -394,15 +394,39 @@ local welcomePage = make("Frame", {
     BackgroundTransparency = 1,
 }, content)
 
-make("TextLabel", {
-    Size = UDim2.new(1, 0, 0, 28),
-    BackgroundTransparency = 1,
-    Font = Enum.Font.SourceSans,
-    Text = "Welcome",
-    TextSize = 22,
-    TextColor3 = TEXT,
-    TextXAlignment = Enum.TextXAlignment.Left,
-}, welcomePage)
+local function titleRule(parent, text, y, height, textSize, color)
+    local row = make("Frame", {
+        Size = UDim2.new(1, 0, 0, height),
+        Position = UDim2.fromOffset(0, y),
+        BackgroundTransparency = 1,
+    }, parent)
+    local label = make("TextLabel", {
+        AutomaticSize = Enum.AutomaticSize.X,
+        Size = UDim2.new(0, 0, 1, 0),
+        BackgroundTransparency = 1,
+        Font = Enum.Font.SourceSans,
+        Text = text,
+        TextSize = textSize,
+        TextColor3 = color,
+        TextXAlignment = Enum.TextXAlignment.Left,
+    }, row)
+    local line = make("Frame", {
+        AnchorPoint = Vector2.new(0, 0.5),
+        Size = UDim2.new(1, 0, 0, 1),
+        Position = UDim2.new(0, 0, 0.5, 0),
+        BackgroundColor3 = Color3.fromRGB(70, 70, 70),
+        BorderSizePixel = 0,
+    }, row)
+    local function place()
+        local gap = label.AbsoluteSize.X + 8
+        line.Position = UDim2.new(0, gap, 0.5, 0)
+        line.Size = UDim2.new(1, -gap, 0, 1)
+    end
+    label:GetPropertyChangedSignal("AbsoluteSize"):Connect(place)
+    task.defer(place)
+end
+
+titleRule(welcomePage, "Welcome", 0, 28, 22, TEXT)
 
 make("TextLabel", {
     Size = UDim2.new(1, 0, 0, 22),
@@ -415,16 +439,7 @@ make("TextLabel", {
     TextXAlignment = Enum.TextXAlignment.Left,
 }, welcomePage)
 
-make("TextLabel", {
-    Size = UDim2.new(1, 0, 0, 22),
-    Position = UDim2.fromOffset(0, 78),
-    BackgroundTransparency = 1,
-    Font = Enum.Font.SourceSans,
-    Text = "GitHub",
-    TextSize = 15,
-    TextColor3 = Color3.fromRGB(210, 210, 210),
-    TextXAlignment = Enum.TextXAlignment.Left,
-}, welcomePage)
+titleRule(welcomePage, "GitHub", 78, 22, 15, Color3.fromRGB(210, 210, 210))
 
 local githubBox = make("TextBox", {
     Size = UDim2.new(1, 0, 0, 22),
@@ -467,32 +482,12 @@ local settingsBtn = make("TextButton", {
     AutoButtonColor = false,
 }, sidebar)
 
+local accountOpen = true
 local scriptsOpen = true
-local scriptsBtn = make("TextButton", {
-    Size = UDim2.new(1, -16, 0, 22),
-    Position = UDim2.fromOffset(8, 72),
-    BackgroundTransparency = 1,
-    Font = Enum.Font.SourceSansBold,
-    Text = "Scripts",
-    TextSize = 15,
-    TextColor3 = TEXT,
-    TextXAlignment = Enum.TextXAlignment.Left,
-    AutoButtonColor = false,
-}, sidebar)
 
-local scriptsChevron = make("TextLabel", {
-    Size = UDim2.fromOffset(16, 22),
-    Position = UDim2.new(1, -16, 0, 0),
-    BackgroundTransparency = 1,
-    Font = Enum.Font.SourceSans,
-    Text = "v",
-    TextSize = 14,
-    TextColor3 = MUTED,
-}, scriptsBtn)
-
-local scriptList = make("ScrollingFrame", {
-    Size = UDim2.new(1, -8, 1, -102),
-    Position = UDim2.fromOffset(4, 98),
+local sideScroll = make("ScrollingFrame", {
+    Size = UDim2.new(1, -8, 1, -76),
+    Position = UDim2.fromOffset(4, 72),
     BackgroundTransparency = 1,
     BorderSizePixel = 0,
     ScrollBarThickness = 3,
@@ -501,18 +496,60 @@ local scriptList = make("ScrollingFrame", {
     AutomaticCanvasSize = Enum.AutomaticSize.Y,
     ScrollingDirection = Enum.ScrollingDirection.Y,
 }, sidebar)
-
 make("UIListLayout", {
     FillDirection = Enum.FillDirection.Vertical,
     Padding = UDim.new(0, 2),
     SortOrder = Enum.SortOrder.LayoutOrder,
-}, scriptList)
-
+}, sideScroll)
 make("UIPadding", {
     PaddingTop = UDim.new(0, 2),
     PaddingLeft = UDim.new(0, 4),
     PaddingRight = UDim.new(0, 4),
-}, scriptList)
+}, sideScroll)
+
+local function groupButton(text, order)
+    local button = make("TextButton", {
+        Size = UDim2.new(1, 0, 0, 22),
+        BackgroundTransparency = 1,
+        Font = Enum.Font.SourceSansBold,
+        Text = text,
+        TextSize = 15,
+        TextColor3 = TEXT,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        AutoButtonColor = false,
+        LayoutOrder = order,
+    }, sideScroll)
+    local chevron = make("TextLabel", {
+        Size = UDim2.fromOffset(16, 22),
+        Position = UDim2.new(1, -16, 0, 0),
+        BackgroundTransparency = 1,
+        Font = Enum.Font.SourceSans,
+        Text = "v",
+        TextSize = 14,
+        TextColor3 = MUTED,
+    }, button)
+    return button, chevron
+end
+
+local function groupList(order)
+    local list = make("Frame", {
+        Size = UDim2.new(1, 0, 0, 0),
+        BackgroundTransparency = 1,
+        AutomaticSize = Enum.AutomaticSize.Y,
+        LayoutOrder = order,
+    }, sideScroll)
+    make("UIListLayout", {
+        FillDirection = Enum.FillDirection.Vertical,
+        Padding = UDim.new(0, 2),
+        SortOrder = Enum.SortOrder.LayoutOrder,
+    }, list)
+    return list
+end
+
+local accountBtn, accountChevron = groupButton("Account", 1)
+local accountList = groupList(2)
+local scriptsBtn, scriptsChevron = groupButton("Scripts", 3)
+local scriptList = groupList(4)
 
 local function pointerOverWindow()
     if not (window and window.Visible and window.Parent) then
@@ -982,21 +1019,6 @@ local function paintSwitch(track, knob, on)
     }):Play()
 end
 
-local rank = {}
-local listOrder = {}
-for index, entry in ipairs(SCRIPTS) do
-    rank[entry] = index
-    listOrder[index] = entry
-end
-table.sort(listOrder, function(a, b)
-    local aPage = a.power == false
-    local bPage = b.power == false
-    if aPage ~= bPage then
-        return aPage
-    end
-    return rank[a] < rank[b]
-end)
-
 local function showHome()
     settingsPage.Visible = false
     scriptHost.Visible = false
@@ -1015,13 +1037,14 @@ end
 homeBtn.MouseButton1Click:Connect(showHome)
 paintHome()
 
-for index, entry in ipairs(listOrder) do
+for index, entry in ipairs(SCRIPTS) do
+    local rowParent = entry.power == false and accountList or scriptList
     local row = make("Frame", {
         Size = UDim2.new(1, 0, 0, 24),
         BackgroundColor3 = SIDEBAR,
         BorderSizePixel = 0,
         LayoutOrder = index,
-    }, scriptList)
+    }, rowParent)
 
     local showPower = entry.power ~= false
     local nameBtn = make("TextButton", {
@@ -1211,6 +1234,12 @@ keyBtn.MouseButton1Click:Connect(function()
 end)
 
 settingsBtn.MouseButton1Click:Connect(showSettings)
+
+accountBtn.MouseButton1Click:Connect(function()
+    accountOpen = not accountOpen
+    accountList.Visible = accountOpen
+    accountChevron.Text = accountOpen and "v" or ">"
+end)
 
 scriptsBtn.MouseButton1Click:Connect(function()
     scriptsOpen = not scriptsOpen

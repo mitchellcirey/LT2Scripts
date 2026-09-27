@@ -70,6 +70,7 @@ local sawmillOwner = Player.Name
 local woodOwner = Player.Name
 local selectedWood = nil
 local selectedSawmill = nil
+local selectedMillModel = nil
 
 local armed = false
 local running = false
@@ -317,11 +318,21 @@ end
 
 local function chosenSawmill(player)
     if type(selectedSawmill) ~= "string" or selectedSawmill == "" then
+        selectedMillModel = nil
         return nil
     end
     local mills = getPlayerSawmills(player)
+    if selectedMillModel and selectedMillModel.Parent then
+        for _, mill in ipairs(mills) do
+            if mill.model == selectedMillModel then
+                return mill
+            end
+        end
+        return nil
+    end
     for _, mill in ipairs(mills) do
         if mill.key == selectedSawmill then
+            selectedMillModel = mill.model
             return mill
         end
     end
@@ -380,12 +391,26 @@ local function logFits(section, props)
     return true
 end
 
+local function logWood(log)
+    local value = log:FindFirstChild("TreeClass") or log:FindFirstChild("TreeClass", true)
+    if value and type(value.Value) == "string" and woodSet[value.Value] then
+        return value.Value
+    end
+    return nil
+end
+
 local function canMove()
     return running and _G.JellSawmillMoving == true and _G.JellSawmillEpoch == epoch
 end
 
 local function moveLogs(player, sawmill, rootPart, token)
     if not canMove() or token ~= session then
+        return
+    end
+    if sawmill.model ~= selectedMillModel then
+        return
+    end
+    if type(selectedWood) ~= "string" or not woodSet[selectedWood] then
         return
     end
     local logModels = Workspace:FindFirstChild("LogModels")
@@ -403,9 +428,8 @@ local function moveLogs(player, sawmill, rootPart, token)
         end
         if log:FindFirstChild("Owner") and (log.Owner.Value == nil or log.Owner.Value == player) and log.Name ~= "PlaceholderPart" then
             local woodSection = singleSection(log)
-            local treeClass = log:FindFirstChild("TreeClass")
             local target = log:FindFirstChild("Main") or woodSection
-            if woodSection and target and treeClass and treeClass.Value == selectedWood then
+            if woodSection and target and logWood(log) == selectedWood then
                 local flat = (rootPart.Position - target.Position) * Vector3.new(1, 0, 1)
                 if flat.Magnitude <= MAX_STUDS and logFits(woodSection, props) and canMove() and token == session then
                     local _, _, length = sortedSize(woodSection.Size)
@@ -646,8 +670,7 @@ local function refreshHighlights()
         local matches = {}
         for _, log in ipairs(logModels:GetChildren()) do
             if log:FindFirstChild("Owner") and (log.Owner.Value == nil or log.Owner.Value == woodPlayer) and log.Name ~= "PlaceholderPart" then
-                local treeClass = log:FindFirstChild("TreeClass")
-                if treeClass and treeClass.Value == selectedWood then
+                if logWood(log) == selectedWood then
                     local target = log:FindFirstChild("Main") or log:FindFirstChildWhichIsA("BasePart")
                     local dist = 0
                     if target and rootPart then
@@ -710,13 +733,13 @@ local function runLoop(token)
             local rootPart = currentRoot()
             local sawmillPlayer = findPlayer(sawmillOwner)
             local woodPlayer = findPlayer(woodOwner)
-            if rootPart and sawmillPlayer and woodPlayer then
+            if rootPart and sawmillPlayer and woodPlayer and type(selectedWood) == "string" and woodSet[selectedWood] then
                 ensurePermission(sawmillPlayer)
-                if token ~= session then
+                if token ~= session or not canMove() then
                     return
                 end
                 local sawmill = chosenSawmill(sawmillPlayer)
-                if sawmill then
+                if sawmill and sawmill.model == selectedMillModel then
                     moveLogs(woodPlayer, sawmill, rootPart, token)
                 end
             end
@@ -1070,6 +1093,7 @@ local function build(parent)
         openMenu(sawmillOwnerBtn, playerOptions(), sawmillOwner, function(id)
             sawmillOwner = id
             selectedSawmill = nil
+            selectedMillModel = nil
             saveConfig()
             paintFields()
         end)
@@ -1086,6 +1110,16 @@ local function build(parent)
     sawmillBtn.MouseButton1Click:Connect(function()
         openMenu(sawmillBtn, sawmillOptions(), selectedSawmill, function(id)
             selectedSawmill = id ~= "" and id or nil
+            selectedMillModel = nil
+            if selectedSawmill then
+                local player = findPlayer(sawmillOwner)
+                for _, mill in ipairs(player and getPlayerSawmills(player) or {}) do
+                    if mill.key == selectedSawmill then
+                        selectedMillModel = mill.model
+                        break
+                    end
+                end
+            end
             saveConfig()
             paintFields()
         end)

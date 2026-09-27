@@ -427,16 +427,35 @@ local function field(parent, caption, order)
 end
 
 local function heading(parent, text, order)
-    make("TextLabel", {
+    local row = make("Frame", {
         Size = UDim2.new(1, 0, 0, 18),
+        BackgroundTransparency = 1,
+        LayoutOrder = order,
+    }, parent)
+    local label = make("TextLabel", {
+        AutomaticSize = Enum.AutomaticSize.X,
+        Size = UDim2.new(0, 0, 1, 0),
         BackgroundTransparency = 1,
         Font = Enum.Font.SourceSans,
         Text = text,
         TextSize = 15,
         TextColor3 = TEXT,
         TextXAlignment = Enum.TextXAlignment.Left,
-        LayoutOrder = order,
-    }, parent)
+    }, row)
+    local line = make("Frame", {
+        AnchorPoint = Vector2.new(0, 0.5),
+        Size = UDim2.new(1, 0, 0, 1),
+        Position = UDim2.new(0, 0, 0.5, 0),
+        BackgroundColor3 = Color3.fromRGB(70, 70, 70),
+        BorderSizePixel = 0,
+    }, row)
+    local function place()
+        local gap = label.AbsoluteSize.X + 8
+        line.Position = UDim2.new(0, gap, 0.5, 0)
+        line.Size = UDim2.new(1, -gap, 0, 1)
+    end
+    label:GetPropertyChangedSignal("AbsoluteSize"):Connect(place)
+    task.defer(place)
 end
 
 local function action(parent, text, order)
