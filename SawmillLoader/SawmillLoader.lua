@@ -19,6 +19,7 @@ local TEXT = Color3.fromRGB(230, 230, 230)
 local MUTED = Color3.fromRGB(160, 160, 160)
 local FIELD = Color3.fromRGB(58, 58, 58)
 local MENU = Color3.fromRGB(32, 32, 32)
+local HOVER = Color3.fromRGB(120, 120, 120)
 local START_GREEN = Color3.fromRGB(70, 190, 105)
 local STOP_RED = Color3.fromRGB(210, 70, 70)
 local RING_CYAN = Color3.fromRGB(0, 200, 255)
@@ -743,7 +744,7 @@ local function sawmillCaption()
 end
 
 local function playerLabel(player)
-    return player.DisplayName .. "  @" .. player.Name
+    return player.DisplayName .. " (@" .. player.Name .. ")"
 end
 
 local function playerCaption(name)
@@ -752,7 +753,7 @@ local function playerCaption(name)
         return playerLabel(player)
     end
     if type(name) == "string" and name ~= "" then
-        return "@" .. name
+        return "(@" .. name .. ")"
     end
     return "None"
 end
@@ -867,6 +868,14 @@ local function openMenu(button, options, current, onPick)
         make("UIPadding", {
             PaddingLeft = UDim.new(0, 6),
         }, row)
+        row.MouseEnter:Connect(function()
+            row.BackgroundColor3 = HOVER
+            row.BackgroundTransparency = 0
+        end)
+        row.MouseLeave:Connect(function()
+            row.BackgroundColor3 = FIELD
+            row.BackgroundTransparency = picked and 0 or 1
+        end)
         row.MouseButton1Click:Connect(function()
             if option.id == nil then
                 return

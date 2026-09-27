@@ -36,6 +36,12 @@ local SCRIPTS = {
         url = BASE .. "TreeCutter/TreeCutter.lua",
     },
     {
+        id = "Management",
+        name = "Management",
+        url = BASE .. "Management/Management.lua",
+        power = false,
+    },
+    {
         id = "Teleports",
         name = "Teleports",
         url = BASE .. "Teleports/Teleports.lua",

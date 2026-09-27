@@ -15,6 +15,7 @@ local DARK = Color3.fromRGB(18, 18, 18)
 local BUTTON = Color3.fromRGB(230, 230, 230)
 local FIELD = Color3.fromRGB(58, 58, 58)
 local MENU = Color3.fromRGB(32, 32, 32)
+local HOVER = Color3.fromRGB(120, 120, 120)
 
 local ROW_H = 22
 local MENU_MAX = 176
@@ -361,6 +362,14 @@ local function openMenu(button, options, current, onPick)
         make("UIPadding", {
             PaddingLeft = UDim.new(0, 6),
         }, row)
+        row.MouseEnter:Connect(function()
+            row.BackgroundColor3 = HOVER
+            row.BackgroundTransparency = 0
+        end)
+        row.MouseLeave:Connect(function()
+            row.BackgroundColor3 = FIELD
+            row.BackgroundTransparency = picked and 0 or 1
+        end)
         row.MouseButton1Click:Connect(function()
             if option.id == nil then
                 return

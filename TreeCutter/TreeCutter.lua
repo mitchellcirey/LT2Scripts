@@ -21,6 +21,7 @@ local RED = Color3.fromRGB(210, 70, 70)
 local DARK = Color3.fromRGB(18, 18, 18)
 local BUTTON = Color3.fromRGB(230, 230, 230)
 local FIELD = Color3.fromRGB(58, 58, 58)
+local HOVER = Color3.fromRGB(120, 120, 120)
 local TRACK = Color3.fromRGB(40, 40, 40)
 local GREEN = Color3.fromRGB(70, 190, 105)
 local TOGGLE_W = 28
@@ -2306,6 +2307,14 @@ function F.openMenu()
         F.make("UIPadding", {
             PaddingLeft = UDim.new(0, 6),
         }, row)
+        row.MouseEnter:Connect(function()
+            row.BackgroundColor3 = HOVER
+            row.BackgroundTransparency = 0
+        end)
+        row.MouseLeave:Connect(function()
+            row.BackgroundColor3 = FIELD
+            row.BackgroundTransparency = picked and 0 or 1
+        end)
         row.MouseButton1Click:Connect(function()
             if blocked then
                 return
