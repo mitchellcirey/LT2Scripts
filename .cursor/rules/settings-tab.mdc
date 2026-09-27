@@ -5,7 +5,7 @@ alwaysApply: true
 
 # Settings
 
-Dashboard settings live in `Dashboard/Dashboard.lua` and in `saveConfig`, written to `LT2Scripts/dashboard.json`. Until that file exists, Ctrl Click, Disable fog, Disable shift walk, Prevent AFK kick, and Axe recovery start on. Disable shadows, Always Day, Infinite jump, No clip, Enhanced visuals, and Lower bridge start off. Background opacity starts at 92. The toggle key starts as Tab.
+Dashboard settings live in `Dashboard/Dashboard.lua` and in `saveConfig`, written to `LT2Scripts/dashboard.json`. Until that file exists, Ctrl Click, Disable fog, Disable shift walk, Prevent AFK kick, and Axe recovery start on. Disable shadows, Always Day, Infinite jump, No clip, Enhanced visuals, and Lower bridge start off. Background opacity starts at 92 and cannot go below 20. The toggle key starts as Tab.
 
 Script-specific settings stay on that script's page and in its `saveConfig`.
 

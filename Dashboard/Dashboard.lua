@@ -124,7 +124,13 @@ local settings = {
     axeRecovery = true,
 }
 
+local OPACITY_MIN = 20
+local OPACITY_MAX = 100
 local backgroundOpacity = 92
+
+local function clampOpacity(value)
+    return math.clamp(math.floor(value + 0.5), OPACITY_MIN, OPACITY_MAX)
+end
 
 local toggleKey = Enum.KeyCode.Tab --Enum.KeyCode.LeftAlt instead maybe??? idk whats better but changable in game
 local capturingKey = false
@@ -215,7 +221,7 @@ local function applySaved(data)
     end
     local savedOpacity = tonumber(data.backgroundOpacity)
     if savedOpacity then
-        backgroundOpacity = math.clamp(math.floor(savedOpacity + 0.5), 0, 100)
+        backgroundOpacity = clampOpacity(savedOpacity)
     end
     toggleKey = keyFromName(data.toggleKey, toggleKey)
 end
@@ -724,7 +730,7 @@ local window = make("Frame", {
     Size = UDim2.fromOffset(Theme.WINDOW_W, Theme.WINDOW_H),
     Position = UDim2.new(1, -(Theme.WINDOW_W + Theme.WINDOW_EDGE), 1, -(Theme.WINDOW_H + Theme.WINDOW_EDGE - 12)),
     BackgroundColor3 = Color3.fromRGB(18, 18, 18),
-    BackgroundTransparency = 1 - (backgroundOpacity / 100),
+    BackgroundTransparency = 1,
     BorderSizePixel = 0,
     Active = true,
     ClipsDescendants = true,
@@ -742,13 +748,73 @@ make("TextButton", {
     ZIndex = 0,
 }, window)
 
+local function userTransparency()
+    return 1 - (backgroundOpacity / 100)
+end
+
+local function syncGlass(object)
+    if not object:IsA("GuiObject") or object:GetAttribute("GlassLock") then
+        return
+    end
+    local transparency = object.BackgroundTransparency
+    if transparency >= 0.99 then
+        object:SetAttribute("Glass", nil)
+        return
+    end
+    if transparency <= 0.001 then
+        object:SetAttribute("Glass", true)
+    end
+    if object:GetAttribute("Glass") ~= true then
+        return
+    end
+    local target = userTransparency()
+    if math.abs(transparency - target) < 0.001 then
+        return
+    end
+    object:SetAttribute("GlassLock", true)
+    object.BackgroundTransparency = target
+    object:SetAttribute("GlassLock", nil)
+end
+
+local function watchGlass(object)
+    if not object:IsA("GuiObject") or object:GetAttribute("GlassWatch") then
+        return
+    end
+    object:SetAttribute("GlassWatch", true)
+    object:GetPropertyChangedSignal("BackgroundTransparency"):Connect(function()
+        syncGlass(object)
+    end)
+    syncGlass(object)
+end
+
+local function applyBackground()
+    window.BackgroundTransparency = 1
+    local target = userTransparency()
+    for _, object in ipairs(window:GetDescendants()) do
+        if object:GetAttribute("Glass") == true then
+            object:SetAttribute("GlassLock", true)
+            object.BackgroundTransparency = target
+            object:SetAttribute("GlassLock", nil)
+        end
+    end
+end
+
 window.DescendantAdded:Connect(function(object)
     if object:IsA("ScrollingFrame") and object.BackgroundTransparency >= 1 then
         object.Active = true
         -- A fully clear frame is not a click target, so the wheel would land on the blocker.
         object.BackgroundTransparency = 0.999
     end
+    watchGlass(object)
 end)
+
+make("Frame", {
+    Name = "HeaderPlate",
+    Size = UDim2.new(1, 0, 0, 28),
+    BackgroundColor3 = Color3.fromRGB(18, 18, 18),
+    BorderSizePixel = 0,
+    ZIndex = 0,
+}, window)
 
 local titleBar = make("TextButton", {
     Size = UDim2.new(1, 0, 0, 28),
@@ -780,14 +846,11 @@ make("TextLabel", {
 
 local function bindHover(button)
     local baseColor = button.BackgroundColor3
-    local baseTransparency = button.BackgroundTransparency
     button.MouseEnter:Connect(function()
         button.BackgroundColor3 = Theme.HOVER_BG
-        button.BackgroundTransparency = 0
     end)
     button.MouseLeave:Connect(function()
         button.BackgroundColor3 = baseColor
-        button.BackgroundTransparency = baseTransparency
     end)
 end
 
@@ -833,7 +896,6 @@ local body = make("Frame", {
 local sidebar = make("Frame", {
     Size = UDim2.new(0, 200, 1, 0),
     BackgroundColor3 = Theme.SIDEBAR,
-    BackgroundTransparency = 1 - (backgroundOpacity / 100),
     BorderSizePixel = 0,
 }, body)
 
@@ -841,16 +903,17 @@ local sidebarRule = make("Frame", {
     Size = UDim2.new(0, 1, 1, 0),
     Position = UDim2.fromOffset(200, 0),
     BackgroundColor3 = Color3.fromRGB(48, 48, 48),
-    BackgroundTransparency = 1 - (backgroundOpacity / 100),
     BorderSizePixel = 0,
 }, body)
 
-local function applyBackground()
-    local transparency = 1 - (backgroundOpacity / 100)
-    window.BackgroundTransparency = transparency
-    sidebar.BackgroundTransparency = transparency
-    sidebarRule.BackgroundTransparency = transparency
-end
+make("Frame", {
+    Name = "ContentPlate",
+    Size = UDim2.new(1, -201, 1, 0),
+    Position = UDim2.fromOffset(201, 0),
+    BackgroundColor3 = Color3.fromRGB(18, 18, 18),
+    BorderSizePixel = 0,
+    ZIndex = 0,
+}, body)
 
 local content = make("Frame", {
     Size = UDim2.new(1, -201, 1, 0),
@@ -2568,14 +2631,15 @@ local sliderTrack = make("Frame", {
     BorderSizePixel = 0,
 }, sliderHit)
 local sliderFill = make("Frame", {
-    Size = UDim2.new(backgroundOpacity / 100, 0, 1, 0),
+    Size = UDim2.new((backgroundOpacity - OPACITY_MIN) / (OPACITY_MAX - OPACITY_MIN), 0, 1, 0),
     BackgroundColor3 = Color3.fromRGB(230, 230, 230),
     BorderSizePixel = 0,
 }, sliderTrack)
 
 local function paintOpacity()
+    local span = OPACITY_MAX - OPACITY_MIN
     opacityValue.Text = tostring(backgroundOpacity)
-    sliderFill.Size = UDim2.new(backgroundOpacity / 100, 0, 1, 0)
+    sliderFill.Size = UDim2.new((backgroundOpacity - OPACITY_MIN) / span, 0, 1, 0)
     applyBackground()
 end
 
@@ -2590,7 +2654,7 @@ local function opacityFromMouse()
         x -= Services.GuiService:GetGuiInset().X
     end
     local alpha = math.clamp((x - sliderTrack.AbsolutePosition.X) / width, 0, 1)
-    backgroundOpacity = math.floor(alpha * 100 + 0.5)
+    backgroundOpacity = clampOpacity(OPACITY_MIN + alpha * (OPACITY_MAX - OPACITY_MIN))
     paintOpacity()
 end
 
