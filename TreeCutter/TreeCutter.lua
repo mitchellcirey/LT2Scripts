@@ -50,6 +50,24 @@ local CUT_MIN_LEFTOVER = 1
 local CUT_COLOR = Color3.fromRGB(70, 200, 255)
 local QUEUE_COLOR = Color3.fromRGB(255, 150, 20)
 local SELL_COLOR = Color3.fromRGB(80, 255, 120)
+local MOD_COLOR = Color3.fromRGB(190, 90, 255)
+local MOD_TP_CF = CFrame.new(-1420, 380, 1400)
+local DROP_ZONE_CF = CFrame.new(-360, 92, -100)
+local MOD_DISAPPEAR = 60
+local MOD_CHOP_TIMEOUT = 40
+local MOD_FIRE_DELAY = 0.03
+local MOD_BURN_TRIES = 5
+local BLUEPRINT_NAME = "Wall2"
+local TILE_END_OFFSET = CFrame.new(0, 5, -1.8)
+local TILE_OFFSET_4L = CFrame.new(0, 8.5, -1.8)
+local BLUEPRINT_MATCH = 1
+local SAWMILL_NAMES = {
+    Sawmill = true,
+    Sawmill2 = true,
+    Sawmill3 = true,
+    Sawmill4 = true,
+    Sawmill4L = true,
+}
 
 local PRIORITY = {
     "Generic", "Cherry", "Birch", "Oak", "Walnut", "Koa", "Pine", "Palm", "Fir",
@@ -219,6 +237,9 @@ local quantity = 1
 local clickToSell = false
 local cutterOn = false
 local hoverOn = false
+local modding = false
+local modSawmill = false
+local modGen = 0
 
 local started = false
 local mounted = false
@@ -252,6 +273,8 @@ local sellBtn
 local clickBtn
 local cutterBtn
 local hoverBtn
+local modSawmillBtn
+local modTreeBtn
 local statusLabel
 local menu
 local backdrop
@@ -284,6 +307,9 @@ local markFolder
 local hoverConn
 local hoverBillboard
 local hoverModel
+local modHome
+local modLava
+local modMarks = {}
 
 local api = {}
 
@@ -660,7 +686,7 @@ function F.cutEventFor(section)
     return nil
 end
 
-function F.fireCut(section, tool, axeName, treeClass, height, shouldStop)
+function F.fireCut(section, tool, axeName, treeClass, height, shouldStop, fireDelay)
     if not section or not section.Parent then
         return
     end
@@ -687,7 +713,7 @@ function F.fireCut(section, tool, axeName, treeClass, height, shouldStop)
             break
         end
         remote:FireServer(cutEvent, args)
-        task.wait(FIRE_DELAY)
+        task.wait(fireDelay or FIRE_DELAY)
     end
 end
 
@@ -754,8 +780,11 @@ function F.lastInteraction(model)
     return model:FindFirstChild("LastInteraction")
 end
 
-function F.teleportPart(target, goal, token, returnToOrigin, moveToken)
+function F.teleportPart(target, goal, token, returnToOrigin, moveToken, stillGoing)
     local function going()
+        if stillGoing and not stillGoing() then
+            return false
+        end
         return F.alive(token) and (moveToken == nil or moveToken == moveGen)
     end
     if not target or not target.Parent or not going() then
@@ -1368,7 +1397,10 @@ function F.enableSell()
     local gen = sellGen
     local token = session
     F.track(sellConns, RunService.RenderStepped:Connect(function()
-        if gen ~= sellGen or not clickToSell then
+        if gen ~= sellGen or not clickToSell or modding or modSawmill then
+            if modding or modSawmill then
+                F.clearSellOutline()
+            end
             return
         end
         if sellBusy then
@@ -1383,7 +1415,7 @@ function F.enableSell()
         end
     end))
     F.track(sellConns, UserInputService.InputBegan:Connect(function(input, processed)
-        if processed or gen ~= sellGen or sellBusy or not clickToSell then
+        if processed or gen ~= sellGen or sellBusy or not clickToSell or modding or modSawmill then
             return
         end
         if input.UserInputType ~= Enum.UserInputType.MouseButton1 then
@@ -1843,7 +1875,7 @@ function F.enableCutter()
         end
     end))
     F.track(cutterConns, Player:GetMouse().Button1Down:Connect(function()
-        if gen ~= cutterGen or not cutterOn then
+        if gen ~= cutterGen or not cutterOn or modding or modSawmill then
             return
         end
         local window = root
@@ -2100,6 +2132,8 @@ function F.paintAll()
     F.paintAction(chopBtn, chopLogs, "Start", "Stop")
     F.paintAction(tpBtn, moveMode == "tp", "TP", "Stop")
     F.paintAction(sellBtn, moveMode == "sell", "Sell", "Stop")
+    F.paintAction(modSawmillBtn, modSawmill, "Sawmill", "Stop")
+    F.paintAction(modTreeBtn, modding, "Tree", "Stop")
     F.paintToggle(clickBtn, clickToSell)
     F.paintToggle(cutterBtn, cutterOn)
     F.paintToggle(hoverBtn, hoverOn)
@@ -2409,6 +2443,677 @@ function F.requireStarted()
     return false
 end
 
+function F.modActive(gen)
+    return started and gen == modGen
+end
+
+function F.modStatus(gen, text)
+    if F.modActive(gen) then
+        F.setStatus(text)
+    end
+end
+
+function F.clearModMarks()
+    for _, mark in ipairs(modMarks) do
+        mark:Destroy()
+    end
+    table.clear(modMarks)
+end
+
+function F.markModTree(model)
+    table.insert(modMarks, F.makeMark("TreeCutterMod", MOD_COLOR, model))
+end
+
+function F.restoreModLava()
+    local saved = modLava
+    if not saved then
+        return
+    end
+    modLava = nil
+    for index, part in ipairs(saved.parts) do
+        pcall(function()
+            if part and part.Parent then
+                part.Size = saved.sizes[index]
+                part.CFrame = saved.cframes[index]
+            end
+        end)
+    end
+end
+
+function F.placePlayer(cf)
+    if not cf then
+        return
+    end
+    local rootPart = F.currentRoot()
+    if not rootPart then
+        return
+    end
+    pcall(function()
+        rootPart.CFrame = cf
+        rootPart.AssemblyLinearVelocity = Vector3.zero
+    end)
+end
+
+function F.returnModPlayer()
+    local cf = modHome
+    modHome = nil
+    F.placePlayer(cf)
+end
+
+function F.stopMod()
+    modGen = modGen + 1
+    modding = false
+    modSawmill = false
+    F.restoreModLava()
+    F.clearModMarks()
+    F.returnModPlayer()
+end
+
+function F.modSleep(gen, duration)
+    local deadline = os.clock() + duration
+    while os.clock() < deadline do
+        if not F.modActive(gen) then
+            return false
+        end
+        task.wait()
+    end
+    return F.modActive(gen)
+end
+
+function F.pointerOnWindow()
+    local window = root
+    while window and window.Name ~= "Window" do
+        window = window.Parent
+    end
+    if not window then
+        return false
+    end
+    local mousePos = UserInputService:GetMouseLocation()
+    local gui = window:FindFirstAncestorWhichIsA("ScreenGui")
+    local x, y = mousePos.X, mousePos.Y
+    if not (gui and gui.IgnoreGuiInset) then
+        local inset = Services.GuiService:GetGuiInset()
+        x -= inset.X
+        y -= inset.Y
+    end
+    local pos = window.AbsolutePosition
+    local size = window.AbsoluteSize
+    return x >= pos.X and x <= pos.X + size.X and y >= pos.Y and y <= pos.Y + size.Y
+end
+
+function F.modelUnder(instance, parent)
+    local current = instance
+    while current and current.Parent ~= parent do
+        current = current.Parent
+    end
+    return current
+end
+
+function F.ancestorModel(instance)
+    local current = instance
+    while current and not current:IsA("Model") do
+        current = current.Parent
+    end
+    return current
+end
+
+function F.validSawmill(model)
+    if not model or not model:IsA("Model") then
+        return false
+    end
+    local itemName = model:FindFirstChild("ItemName")
+    return itemName and itemName:IsA("StringValue") and SAWMILL_NAMES[itemName.Value] == true
+end
+
+function F.validModTree(model)
+    if not model or not model:IsA("Model") then
+        return false
+    end
+    local logs = Workspace:FindFirstChild("LogModels")
+    if not logs or model.Parent ~= logs then
+        return false
+    end
+    for _, desc in ipairs(model:GetDescendants()) do
+        if desc:IsA("BasePart") and desc:FindFirstChild("ID") then
+            return true
+        end
+    end
+    return false
+end
+
+function F.sawmillFromMouse()
+    local target = Player:GetMouse().Target
+    local playerModels = Workspace:FindFirstChild("PlayerModels")
+    if not target or not playerModels then
+        return nil
+    end
+    local model = F.modelUnder(target, playerModels)
+    if F.validSawmill(model) then
+        return model
+    end
+    return nil
+end
+
+function F.waitMouse(gen, onClick)
+    local done = false
+    local conn = Player:GetMouse().Button1Down:Connect(function()
+        if done or not F.modActive(gen) or F.pointerOnWindow() then
+            return
+        end
+        if onClick() then
+            done = true
+        end
+    end)
+    while not done and F.modActive(gen) do
+        task.wait()
+    end
+    conn:Disconnect()
+end
+
+function F.waitForSawmill(gen)
+    local picked
+    F.waitMouse(gen, function()
+        picked = F.sawmillFromMouse()
+        return picked ~= nil
+    end)
+    return picked
+end
+
+function F.waitForModQueue(gen)
+    local queue = {}
+    local queued = {}
+    local sawmill
+    F.waitMouse(gen, function()
+        local mill = F.sawmillFromMouse()
+        if mill then
+            sawmill = mill
+            return true
+        end
+        local model = F.ancestorModel(Player:GetMouse().Target)
+        if not F.validModTree(model) then
+            return false
+        end
+        if queued[model] then
+            F.modStatus(gen, "Already queued")
+            return false
+        end
+        queued[model] = true
+        table.insert(queue, model)
+        F.markModTree(model)
+        F.modStatus(gen, "Queued " .. tostring(#queue))
+        return false
+    end)
+    return queue, sawmill
+end
+
+function F.blueprintOffset(sawmill)
+    local itemName = sawmill:FindFirstChild("ItemName")
+    if itemName and itemName.Value == "Sawmill4L" then
+        return TILE_OFFSET_4L
+    end
+    return TILE_END_OFFSET
+end
+
+function F.sawmillCF(sawmill)
+    local particles = sawmill:FindFirstChild("Particles", true)
+    if particles and particles:IsA("BasePart") then
+        return particles.CFrame
+    end
+    return select(1, sawmill:GetBoundingBox())
+end
+
+function F.findBlueprint(targetCF)
+    local playerModels = Workspace:FindFirstChild("PlayerModels")
+    if not playerModels then
+        return nil
+    end
+    for _, model in ipairs(playerModels:GetChildren()) do
+        local itemName = model:FindFirstChild("ItemName")
+        if itemName and itemName.Value == BLUEPRINT_NAME and F.isOwned(model) then
+            local main = model:FindFirstChild("MainCFrame")
+            local cf = (main and main.Value)
+                or (model.PrimaryPart and model.PrimaryPart.CFrame)
+                or model:GetPivot()
+            if (cf.Position - targetCF.Position).Magnitude <= BLUEPRINT_MATCH then
+                return model
+            end
+        end
+    end
+    return nil
+end
+
+function F.placeBlueprint(sawmill)
+    local finalCF = F.sawmillCF(sawmill) * F.blueprintOffset(sawmill) * CFrame.Angles(math.rad(90), 0, 0)
+    if F.findBlueprint(finalCF) then
+        return false
+    end
+    local remote = F.findRemote("PlaceStructure", "ClientPlacedBlueprint")
+    if not remote then
+        return nil
+    end
+    remote:FireServer(BLUEPRINT_NAME, finalCF, Player)
+    return true
+end
+
+function F.analyzeModTree(treeModel)
+    local entries = {}
+    for _, part in ipairs(treeModel:GetDescendants()) do
+        if part:IsA("BasePart") and part.Name ~= "Stump" then
+            local idValue = part:FindFirstChild("ID")
+            if idValue and (idValue:IsA("IntValue") or idValue:IsA("NumberValue")) then
+                local childIDs = {}
+                local childFolder = part:FindFirstChild("ChildIDs")
+                if childFolder then
+                    for _, child in ipairs(childFolder:GetChildren()) do
+                        if child.Name == "Child" and (child:IsA("IntValue") or child:IsA("NumberValue")) then
+                            table.insert(childIDs, child.Value)
+                        end
+                    end
+                end
+                table.insert(entries, {
+                    part = part,
+                    id = idValue.Value,
+                    childIDs = childIDs,
+                    hasChildren = #childIDs > 0,
+                })
+            end
+        end
+    end
+    table.sort(entries, function(a, b)
+        return a.id < b.id
+    end)
+    local targetEntry
+    for index = #entries, 1, -1 do
+        if entries[index].hasChildren then
+            targetEntry = entries[index]
+            break
+        end
+    end
+    local tipID
+    if targetEntry then
+        for _, childId in ipairs(targetEntry.childIDs) do
+            if not tipID or childId > tipID then
+                tipID = childId
+            end
+        end
+    end
+    return {
+        all = entries,
+        stump = entries[1],
+        target = targetEntry,
+        tipID = tipID,
+    }
+end
+
+function F.lavaTouchParts()
+    local parts = {}
+    local volcano = Workspace:FindFirstChild("Region_Volcano")
+    if not volcano then
+        return parts
+    end
+    for _, child in ipairs(volcano:GetChildren()) do
+        for _, desc in ipairs(child:GetDescendants()) do
+            if desc:IsA("BasePart")
+                and (desc:FindFirstChildOfClass("TouchTransmitter") or desc:FindFirstChild("TouchInterest")) then
+                table.insert(parts, desc)
+            end
+        end
+    end
+    return parts
+end
+
+function F.findModSection(treeModel, analysis, beforeLogs, targetID)
+    for _, entry in ipairs(analysis.all) do
+        if entry.id == targetID and entry.part and entry.part.Parent then
+            return entry.part
+        end
+    end
+    local function scan(rootInst)
+        for _, desc in ipairs(rootInst:GetDescendants()) do
+            if desc:IsA("BasePart") then
+                local idValue = desc:FindFirstChild("ID")
+                if idValue and idValue.Value == targetID then
+                    return desc
+                end
+            end
+        end
+        return nil
+    end
+    local found = scan(treeModel)
+    if found then
+        return found
+    end
+    local logModels = Workspace:FindFirstChild("LogModels")
+    if logModels then
+        for _, model in ipairs(logModels:GetChildren()) do
+            if not beforeLogs[model] and model:IsA("Model") then
+                found = scan(model)
+                if found then
+                    return found
+                end
+            end
+        end
+    end
+    return nil
+end
+
+function F.runOneMod(gen, sawmillCF, treeModel, index, total)
+    F.modStatus(gen, string.format("Modding %d/%d", index, total))
+    local analysis = F.analyzeModTree(treeModel)
+    if #analysis.all == 0 then
+        F.modStatus(gen, "No wood")
+        return false
+    end
+    if not analysis.target then
+        F.modStatus(gen, "No weld")
+        return false
+    end
+    local baseSection
+    for _, entry in ipairs(analysis.all) do
+        if entry.id == 1 then
+            baseSection = entry.part
+            break
+        end
+    end
+    if not baseSection then
+        baseSection = analysis.all[1].part
+    end
+    if not baseSection then
+        F.modStatus(gen, "No wood")
+        return false
+    end
+
+    local treeClassObj = treeModel:FindFirstChild("TreeClass")
+    local treeClass = treeClassObj and treeClassObj.Value or nil
+    local logModels = Workspace:FindFirstChild("LogModels")
+    local beforeLogs = {}
+    if logModels then
+        for _, model in ipairs(logModels:GetChildren()) do
+            beforeLogs[model] = true
+        end
+    end
+
+    if not F.modActive(gen) then
+        return false
+    end
+    local dragged = pcall(function()
+        F.teleportPart(baseSection, DROP_ZONE_CF, session, true, nil, function()
+            return F.modActive(gen)
+        end)
+    end)
+    if not dragged then
+        F.modStatus(gen, "Teleport failed")
+        return false
+    end
+    if not F.modActive(gen) or not baseSection.Parent then
+        return false
+    end
+    pcall(function()
+        baseSection.CFrame = MOD_TP_CF
+    end)
+
+    local touchParts = F.lavaTouchParts()
+    if #touchParts == 0 then
+        F.modStatus(gen, "No lava")
+        return false
+    end
+    local touchSizes = {}
+    local touchCFs = {}
+    for partIndex, part in ipairs(touchParts) do
+        touchSizes[partIndex] = part.Size
+        touchCFs[partIndex] = part.CFrame
+        pcall(function()
+            part.Size = Vector3.new(0.1, 0.1, 0.1)
+        end)
+    end
+    modLava = {
+        parts = touchParts,
+        sizes = touchSizes,
+        cframes = touchCFs,
+    }
+
+    local targetSection = analysis.target.part
+    local burned = false
+    for attempt = 1, MOD_BURN_TRIES do
+        if not F.modActive(gen) then
+            break
+        end
+        if attempt > 1 then
+            pcall(function()
+                baseSection.CFrame = MOD_TP_CF
+            end)
+            if not F.modSleep(gen, 0.1) then
+                break
+            end
+        end
+        local lock = RunService.Heartbeat:Connect(function()
+            pcall(function()
+                local targetCF = targetSection.CFrame
+                for _, part in ipairs(touchParts) do
+                    part.Size = Vector3.new(0.1, 0.1, 0.1)
+                    part.CFrame = targetCF
+                end
+            end)
+        end)
+        local lockOk = F.modSleep(gen, 0.1)
+        lock:Disconnect()
+        for partIndex, part in ipairs(touchParts) do
+            pcall(function()
+                part.Size = touchSizes[partIndex]
+                part.CFrame = touchCFs[partIndex]
+            end)
+        end
+        if not lockOk or not F.modSleep(gen, 0.1) then
+            break
+        end
+        if treeModel:FindFirstChild("Burning") then
+            burned = true
+            break
+        end
+    end
+    F.restoreModLava()
+    if not F.modActive(gen) then
+        return false
+    end
+    if not burned then
+        F.modStatus(gen, "Not burning")
+        return false
+    end
+
+    local tipSection = F.findModSection(treeModel, analysis, beforeLogs, analysis.tipID)
+    pcall(function()
+        targetSection.CFrame = CFrame.new(1279, 52, 2328)
+    end)
+    pcall(function()
+        baseSection.CFrame = DROP_ZONE_CF
+    end)
+    if tipSection and tipSection.Parent then
+        pcall(function()
+            tipSection.CFrame = sawmillCF
+        end)
+        if not F.modSleep(gen, 1) then
+            return false
+        end
+    end
+
+    local deadline = os.clock() + MOD_DISAPPEAR
+    while os.clock() < deadline do
+        if not F.modActive(gen) then
+            return false
+        end
+        if not targetSection or not targetSection.Parent then
+            break
+        end
+        task.wait(0.1)
+    end
+    if not F.modActive(gen) then
+        return false
+    end
+
+    local stumpID = analysis.stump and analysis.stump.id or 1
+    local stumpSection = F.findModSection(treeModel, analysis, beforeLogs, stumpID)
+    local tool, axeName = F.bestAxe(treeClass, false)
+    if not tool then
+        F.modStatus(gen, "No axe")
+        return F.modActive(gen)
+    end
+
+    local initialSize = stumpSection and stumpSection.Size or Vector3.new(math.huge, math.huge, math.huge)
+    local function fallen()
+        if not stumpSection or not stumpSection.Parent then
+            return true
+        end
+        return stumpSection.Size.Y < initialSize.Y - 1
+    end
+    local chopDeadline = os.clock() + MOD_CHOP_TIMEOUT
+    while os.clock() < chopDeadline and not fallen() do
+        if not F.modActive(gen) then
+            return false
+        end
+        if not stumpSection or not stumpSection.Parent then
+            stumpSection = F.findModSection(treeModel, analysis, beforeLogs, stumpID)
+            if stumpSection then
+                initialSize = stumpSection.Size
+            end
+        end
+        if not stumpSection or not stumpSection.Parent then
+            break
+        end
+        local rootPart = F.currentRoot()
+        if rootPart then
+            rootPart.CFrame = CFrame.lookAt(
+                stumpSection.Position + stumpSection.CFrame.RightVector * 4,
+                stumpSection.Position
+            )
+            rootPart.AssemblyLinearVelocity = Vector3.zero
+            if not F.modSleep(gen, 0.1) then
+                return false
+            end
+        end
+        if not stumpSection or not stumpSection.Parent then
+            break
+        end
+        F.fireCut(
+            stumpSection,
+            tool,
+            axeName,
+            treeClass,
+            stumpSection.Size.Y * F.cutHeightFrac(stumpSection.Size.Y),
+            function()
+                return not F.modActive(gen) or fallen()
+            end,
+            MOD_FIRE_DELAY
+        )
+    end
+    return F.modActive(gen)
+end
+
+function F.runMod(gen)
+    if not F.modActive(gen) then
+        return
+    end
+    local rootPart = F.currentRoot()
+    modHome = rootPart and rootPart.CFrame
+    F.modStatus(gen, "Click trees, then sawmill")
+    local queue, sawmill = F.waitForModQueue(gen)
+    F.clearModMarks()
+    if not F.modActive(gen) then
+        return
+    end
+    if not sawmill or #queue == 0 then
+        F.modStatus(gen, sawmill and "No trees" or "No sawmill")
+        return
+    end
+    local goal = F.sawmillCF(sawmill)
+    local success = 0
+    local lastFailed = false
+    for index, treeModel in ipairs(queue) do
+        if not F.modActive(gen) then
+            return
+        end
+        local ok = false
+        if treeModel and treeModel.Parent then
+            ok = F.runOneMod(gen, goal, treeModel, index, #queue)
+        else
+            F.modStatus(gen, "No wood")
+        end
+        if not F.modActive(gen) then
+            return
+        end
+        if ok then
+            success = success + 1
+            lastFailed = false
+        else
+            lastFailed = true
+        end
+        if index < #queue and not F.modSleep(gen, 1) then
+            return
+        end
+    end
+    if not F.modActive(gen) then
+        return
+    end
+    F.placePlayer(goal * CFrame.new(0, 8, 6))
+    modHome = nil
+    if not (lastFailed and #queue == 1) then
+        F.modStatus(gen, string.format("Modded %d/%d", success, #queue))
+    end
+end
+
+function F.runModSawmill(gen)
+    F.modStatus(gen, "Click sawmill")
+    local sawmill = F.waitForSawmill(gen)
+    if not F.modActive(gen) then
+        return
+    end
+    if not sawmill then
+        F.modStatus(gen, "No sawmill")
+        return
+    end
+    local ok, placed = pcall(F.placeBlueprint, sawmill)
+    if not ok or placed == nil then
+        F.modStatus(gen, "Place failed")
+        return
+    end
+    F.modStatus(gen, placed and "Blueprint placed" or "Already placed")
+end
+
+function F.modOccupied()
+    return modding or modSawmill or chopSession or chopLogs or chopping or teleporting
+end
+
+function F.beginMod(kind)
+    if not F.requireStarted() then
+        return nil
+    end
+    if F.modOccupied() then
+        F.setStatus("Busy")
+        return nil
+    end
+    modGen = modGen + 1
+    if kind == "sawmill" then
+        modSawmill = true
+    else
+        modding = true
+    end
+    F.paintAll()
+    return modGen
+end
+
+function F.finishMod(gen, kind)
+    if gen ~= modGen then
+        return
+    end
+    if kind == "sawmill" then
+        modSawmill = false
+    else
+        modding = false
+    end
+    if started then
+        F.paintAll()
+    end
+end
+
 function F.build(parent)
     root = F.make("Frame", {
         Name = "TreeCutterRoot",
@@ -2505,8 +3210,10 @@ function F.build(parent)
     clickBtn = labeledToggle("Click to sell", 7)
     cutterBtn = labeledToggle("1x1 cutter", 8)
     hoverBtn = labeledToggle("Hover value", 9)
+    modSawmillBtn = labeledAction("Mod sawmill", 10, "Sawmill")
+    modTreeBtn = labeledAction("Mod tree", 11, "Tree")
 
-    local statusBlock = F.block(list, 16, 10)
+    local statusBlock = F.block(list, 16, 12)
     statusLabel = F.make("TextLabel", {
         Size = UDim2.new(1, 0, 1, 0),
         BackgroundTransparency = 1,
@@ -2564,9 +3271,13 @@ function F.build(parent)
             chopping = false
             F.cleanupChop()
             F.paintAction(getBtn, false, "Start", "Stop")
-            if not chopLogs and not teleporting then
+            if not chopLogs and not teleporting and not modding and not modSawmill then
                 F.setStatus("Idle")
             end
+            return
+        end
+        if modding or modSawmill then
+            F.setStatus("Busy")
             return
         end
         if not F.treeReady(selectedTree) then
@@ -2605,9 +3316,13 @@ function F.build(parent)
         if chopLogs then
             chopLogs = false
             F.paintAction(chopBtn, false, "Start", "Stop")
-            if not chopSession and not teleporting then
+            if not chopSession and not teleporting and not modding and not modSawmill then
                 F.setStatus("Idle")
             end
+            return
+        end
+        if modding or modSawmill then
+            F.setStatus("Busy")
             return
         end
         F.paintAction(chopBtn, true, "Start", "Stop")
@@ -2643,7 +3358,7 @@ function F.build(parent)
             stopMove()
             return
         end
-        if teleporting or chopping or chopLogs or chopSession then
+        if teleporting or chopping or chopLogs or chopSession or modding or modSawmill then
             F.setStatus("Busy")
             return
         end
@@ -2728,6 +3443,61 @@ function F.build(parent)
             end
         end
     end)
+
+    modSawmillBtn.MouseButton1Click:Connect(function()
+        F.closeMenu()
+        if modSawmill then
+            F.stopMod()
+            if started then
+                F.setStatus("Idle")
+                F.paintAll()
+            end
+            return
+        end
+        local gen = F.beginMod("sawmill")
+        if not gen then
+            return
+        end
+        task.spawn(function()
+            local ok, err = pcall(F.runModSawmill, gen)
+            if not ok then
+                F.warnJell(err)
+                if gen == modGen then
+                    F.modStatus(gen, "Place failed")
+                end
+            end
+            F.finishMod(gen, "sawmill")
+        end)
+    end)
+
+    modTreeBtn.MouseButton1Click:Connect(function()
+        F.closeMenu()
+        if modding then
+            F.stopMod()
+            if started then
+                F.setStatus("Idle")
+                F.paintAll()
+            end
+            return
+        end
+        local gen = F.beginMod("tree")
+        if not gen then
+            return
+        end
+        task.spawn(function()
+            local ok, err = pcall(F.runMod, gen)
+            if not ok then
+                F.warnJell(err)
+                if gen == modGen then
+                    F.restoreModLava()
+                    F.clearModMarks()
+                    F.returnModPlayer()
+                    F.modStatus(gen, "Mod failed")
+                end
+            end
+            F.finishMod(gen, "tree")
+        end)
+    end)
 end
 
 function api.start()
@@ -2752,6 +3522,7 @@ function api.stop()
     teleporting = false
     moveMode = nil
     F.cleanupChop()
+    F.stopMod()
     F.unwatch()
     F.clearBucket(soundConns)
     F.disableSell()
@@ -2796,6 +3567,8 @@ function api.unmount()
     clickBtn = nil
     cutterBtn = nil
     hoverBtn = nil
+    modSawmillBtn = nil
+    modTreeBtn = nil
     statusLabel = nil
 end
 

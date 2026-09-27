@@ -22,7 +22,7 @@ local SCRIPTS = {
     },
     {
         id = "Duper",
-        name = "Duper",
+        name = "Legacy Mover",
         url = BASE .. "Duper/Duper.lua",
     },
     {
@@ -32,8 +32,13 @@ local SCRIPTS = {
     },
     {
         id = "TreeCutter",
-        name = "TreeCutter",
+        name = "Auto Tree",
         url = BASE .. "TreeCutter/TreeCutter.lua",
+    },
+    {
+        id = "Organizer",
+        name = "Organizer",
+        url = BASE .. "Organizer/Organizer.lua",
     },
     {
         id = "Management",
@@ -86,6 +91,8 @@ local settings = {
     preventAfkKick = true,
     infiniteJump = false,
     noClip = false,
+    enhancedVisuals = false,
+    lowerBridge = false,
 }
 
 local toggleKey = Enum.KeyCode.Tab
@@ -177,6 +184,7 @@ local function captureLighting()
         GlobalShadows = Lighting.GlobalShadows,
         FogStart = Lighting.FogStart,
         FogEnd = Lighting.FogEnd,
+        ExposureCompensation = Lighting.ExposureCompensation,
         Atmosphere = atmosphere,
         Density = atmosphere and atmosphere.Density,
         Haze = atmosphere and atmosphere.Haze,
@@ -222,6 +230,105 @@ local function restoreFog()
     end
 end
 
+local bridgeBackup
+
+local function lightingEffect(name, className)
+    local effect = Lighting:FindFirstChild(name)
+    if effect then
+        return effect
+    end
+    effect = Instance.new(className)
+    effect.Name = name
+    effect.Parent = Lighting
+    return effect
+end
+
+local function enableEnhanced()
+    Lighting.Brightness = 3
+    Lighting.ExposureCompensation = 0.5
+    local bloom = lightingEffect("EnhancedBloom", "BloomEffect")
+    bloom.Intensity = 1
+    bloom.Size = 24
+    bloom.Threshold = 2
+    bloom.Enabled = true
+    local correction = lightingEffect("EnhancedCC", "ColorCorrectionEffect")
+    correction.Contrast = 0.1
+    correction.Saturation = 0.15
+    correction.TintColor = Color3.fromRGB(255, 253, 245)
+    correction.Enabled = true
+    local rays = lightingEffect("EnhancedRays", "SunRaysEffect")
+    rays.Intensity = 0.1
+    rays.Spread = 1
+    rays.Enabled = true
+end
+
+local function restoreEnhanced()
+    for _, name in ipairs({ "EnhancedBloom", "EnhancedCC", "EnhancedRays" }) do
+        local effect = Lighting:FindFirstChild(name)
+        if effect then
+            effect.Enabled = false
+        end
+    end
+    local saved = savedLighting
+    if not saved then
+        return
+    end
+    Lighting.Brightness = saved.Brightness
+    Lighting.ExposureCompensation = saved.ExposureCompensation
+end
+
+local function rememberBridge()
+    if bridgeBackup then
+        return
+    end
+    local bridge = Services.Workspace:FindFirstChild("Bridge")
+    if bridge then
+        bridgeBackup = bridge:Clone()
+    end
+end
+
+local function lowerBridge()
+    rememberBridge()
+    local bridge = Services.Workspace:FindFirstChild("Bridge")
+    if not bridge then
+        return
+    end
+    local liftBridge = bridge:FindFirstChild("VerticalLiftBridge")
+    local lift = liftBridge and liftBridge:FindFirstChild("Lift")
+    if lift then
+        for _, child in ipairs(lift:GetChildren()) do
+            if child:IsA("BasePart") and child.Name == "Base" then
+                child.CFrame = CFrame.new(child.Position.X, 6.5, child.Position.Z) * child.CFrame.Rotation
+            end
+        end
+    end
+    local removeNames = {
+        BRope = true,
+        Structure = true,
+        Weight = true,
+        WRope = true,
+    }
+    if liftBridge then
+        for _, child in ipairs(liftBridge:GetChildren()) do
+            if removeNames[child.Name] then
+                child:Destroy()
+            end
+        end
+    end
+end
+
+local function restoreBridge()
+    if not bridgeBackup then
+        return
+    end
+    local restored = bridgeBackup:Clone()
+    local current = Services.Workspace:FindFirstChild("Bridge")
+    if current then
+        current:Destroy()
+    end
+    restored.Parent = Services.Workspace
+end
+
 local function applyLighting()
     captureLighting()
     if settings.alwaysDay then
@@ -240,13 +347,16 @@ local function applyLighting()
             atmosphere.Haze = 0
         end
     end
+    if settings.enhancedVisuals then
+        enableEnhanced()
+    end
 end
 
 local function bindLighting()
     pcall(function()
         RunService:UnbindFromRenderStep(LIGHTING_STEP)
     end)
-    if settings.alwaysDay or settings.disableShadows or settings.disableFog then
+    if settings.alwaysDay or settings.disableShadows or settings.disableFog or settings.enhancedVisuals then
         RunService:BindToRenderStep(LIGHTING_STEP, Enum.RenderPriority.Last.Value, applyLighting)
     end
 end
@@ -258,6 +368,8 @@ local function restoreLighting()
     restoreAlwaysDay()
     restoreShadows()
     restoreFog()
+    restoreEnhanced()
+    restoreBridge()
 end
 
 for _, parent in ipairs(uiParents()) do
@@ -318,8 +430,8 @@ make("TextLabel", {
     Size = UDim2.new(1, -40, 1, 0),
     Position = UDim2.fromOffset(12, 0),
     BackgroundTransparency = 1,
-    Font = Enum.Font.SourceSans,
-    Text = "Jell's Dashboard",
+    Font = Enum.Font.GothamBold,
+    Text = "JELL'S DASHBOARD",
     TextSize = 16,
     TextColor3 = TEXT,
     TextXAlignment = Enum.TextXAlignment.Left,
@@ -362,12 +474,26 @@ local content = make("Frame", {
     ClipsDescendants = true,
 }, body)
 
-local settingsPage = make("Frame", {
-    Size = UDim2.new(1, -24, 1, -24),
-    Position = UDim2.fromOffset(12, 12),
+local settingsPage = make("ScrollingFrame", {
+    Size = UDim2.new(1, -12, 1, -12),
+    Position = UDim2.fromOffset(12, 8),
     BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+    ScrollBarThickness = 3,
+    ScrollBarImageColor3 = Color3.fromRGB(70, 70, 70),
+    CanvasSize = UDim2.new(),
+    AutomaticCanvasSize = Enum.AutomaticSize.Y,
+    ScrollingDirection = Enum.ScrollingDirection.Y,
     Visible = false,
 }, content)
+make("UIListLayout", {
+    FillDirection = Enum.FillDirection.Vertical,
+    Padding = UDim.new(0, 8),
+    SortOrder = Enum.SortOrder.LayoutOrder,
+}, settingsPage)
+make("UIPadding", {
+    PaddingRight = UDim.new(0, 8),
+}, settingsPage)
 
 local scriptHost = make("Frame", {
     Name = "ScriptHost",
@@ -394,18 +520,19 @@ local welcomePage = make("Frame", {
     BackgroundTransparency = 1,
 }, content)
 
-local function titleRule(parent, text, y, height, textSize, color)
+local function titleRule(parent, text, y, height, textSize, color, order)
     local row = make("Frame", {
         Size = UDim2.new(1, 0, 0, height),
         Position = UDim2.fromOffset(0, y),
         BackgroundTransparency = 1,
+        LayoutOrder = order or 0,
     }, parent)
     local label = make("TextLabel", {
         AutomaticSize = Enum.AutomaticSize.X,
         Size = UDim2.new(0, 0, 1, 0),
         BackgroundTransparency = 1,
-        Font = Enum.Font.SourceSans,
-        Text = text,
+        Font = Enum.Font.GothamBold,
+        Text = string.upper(text),
         TextSize = textSize,
         TextColor3 = color,
         TextXAlignment = Enum.TextXAlignment.Left,
@@ -457,6 +584,118 @@ local githubBox = make("TextBox", {
 make("UIPadding", {
     PaddingLeft = UDim.new(0, 6),
 }, githubBox)
+
+local leavingServer = false
+
+local function forceSaveBeforeLeave()
+    local requests = Services.ReplicatedStorage:FindFirstChild("LoadSaveRequests")
+    local slot = Player:FindFirstChild("CurrentSaveSlot")
+    if not slot then
+        local data = Player:FindFirstChild("Data")
+        slot = data and data:FindFirstChild("CurrentSaveSlot")
+    end
+    if not (requests and slot and slot.Value ~= -1) then
+        return
+    end
+    local requestSave = requests:FindFirstChild("RequestSave")
+    if not requestSave then
+        return
+    end
+    pcall(function()
+        requestSave:InvokeServer(slot.Value)
+    end)
+    task.wait(0.5)
+end
+
+local function rejoinServer()
+    if leavingServer then
+        return
+    end
+    leavingServer = true
+    forceSaveBeforeLeave()
+    local ok = pcall(function()
+        Services.TeleportService:Teleport(game.PlaceId, Player)
+    end)
+    if not ok then
+        leavingServer = false
+        return
+    end
+    task.delay(8, function()
+        leavingServer = false
+    end)
+end
+
+local function serverHop(sortOrder)
+    if leavingServer then
+        return
+    end
+    leavingServer = true
+    forceSaveBeforeLeave()
+    local api = ("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=%s&limit=100"):format(game.PlaceId, sortOrder)
+    local ok, result = pcall(function()
+        return Services.HttpService:JSONDecode(game:HttpGet(api))
+    end)
+    if not ok or type(result) ~= "table" or type(result.data) ~= "table" then
+        leavingServer = false
+        warn("[Jell] Failed to fetch server list.")
+        return
+    end
+    for _, server in ipairs(result.data) do
+        if type(server.playing) == "number"
+            and type(server.maxPlayers) == "number"
+            and server.playing < server.maxPlayers
+            and server.id ~= game.JobId
+        then
+            local joined = pcall(function()
+                Services.TeleportService:TeleportToPlaceInstance(game.PlaceId, server.id, Player)
+            end)
+            if joined then
+                task.delay(8, function()
+                    leavingServer = false
+                end)
+                return
+            end
+        end
+    end
+    leavingServer = false
+    warn("[Jell] No suitable server found.")
+end
+
+local function homeAction(labelText, buttonText, y, action)
+    make("TextLabel", {
+        Size = UDim2.new(1, -96, 0, 22),
+        Position = UDim2.fromOffset(0, y),
+        BackgroundTransparency = 1,
+        Font = Enum.Font.SourceSans,
+        Text = labelText,
+        TextSize = 15,
+        TextColor3 = Color3.fromRGB(210, 210, 210),
+        TextXAlignment = Enum.TextXAlignment.Left,
+    }, welcomePage)
+    local button = make("TextButton", {
+        Size = UDim2.fromOffset(88, 22),
+        Position = UDim2.new(1, -88, 0, y),
+        BackgroundColor3 = Color3.fromRGB(58, 58, 58),
+        BorderSizePixel = 0,
+        Font = Enum.Font.SourceSans,
+        Text = buttonText,
+        TextSize = 15,
+        TextColor3 = TEXT,
+        AutoButtonColor = false,
+    }, welcomePage)
+    button.MouseButton1Click:Connect(function()
+        task.spawn(action)
+    end)
+end
+
+titleRule(welcomePage, "Server Management", 146, 22, 15, Color3.fromRGB(210, 210, 210))
+homeAction("Rejoin server", "Rejoin", 176, rejoinServer)
+homeAction("Descending", "Join", 208, function()
+    serverHop("Asc")
+end)
+homeAction("Ascending", "Join", 240, function()
+    serverHop("Desc")
+end)
 
 local homeBtn = make("TextButton", {
     Size = UDim2.new(1, -16, 0, 24),
@@ -511,8 +750,8 @@ local function groupButton(text, order)
     local button = make("TextButton", {
         Size = UDim2.new(1, 0, 0, 22),
         BackgroundTransparency = 1,
-        Font = Enum.Font.SourceSansBold,
-        Text = text,
+        Font = Enum.Font.GothamBold,
+        Text = string.upper(text),
         TextSize = 15,
         TextColor3 = TEXT,
         TextXAlignment = Enum.TextXAlignment.Left,
@@ -1090,23 +1329,21 @@ for index, entry in ipairs(SCRIPTS) do
     end
 end
 
-local function toggleRow(labelText, key, y)
+local function toggleRow(labelText, key, order)
+    local row = make("Frame", {
+        Size = UDim2.new(1, 0, 0, 22),
+        BackgroundTransparency = 1,
+        LayoutOrder = order,
+    }, settingsPage)
     make("TextLabel", {
-        Size = UDim2.new(1, -64, 0, 22),
-        Position = UDim2.fromOffset(0, y),
+        Size = UDim2.new(1, -64, 1, 0),
         BackgroundTransparency = 1,
         Font = Enum.Font.SourceSans,
         Text = labelText,
         TextSize = 15,
         TextColor3 = Color3.fromRGB(210, 210, 210),
         TextXAlignment = Enum.TextXAlignment.Left,
-    }, settingsPage)
-
-    local row = make("Frame", {
-        Size = UDim2.new(1, 0, 0, 22),
-        Position = UDim2.fromOffset(0, y),
-        BackgroundTransparency = 1,
-    }, settingsPage)
+    }, row)
     local track, knob = toggleSwitch(row)
     local on = settings[key] == true
     local knobX = on and (TOGGLE_W - TOGGLE_KNOB - TOGGLE_PAD) or TOGGLE_PAD
@@ -1136,39 +1373,60 @@ local function toggleRow(labelText, key, y)
             bindNoclip()
             return
         end
+        if key == "lowerBridge" then
+            if settings.lowerBridge then
+                lowerBridge()
+            else
+                restoreBridge()
+            end
+            return
+        end
         if key == "alwaysDay" and not settings.alwaysDay then
             restoreAlwaysDay()
         elseif key == "disableFog" and not settings.disableFog then
             restoreFog()
+        elseif key == "enhancedVisuals" and not settings.enhancedVisuals then
+            restoreEnhanced()
         end
         applyLighting()
         bindLighting()
     end)
 end
 
-toggleRow("Ctrl Click", "ctrlClick", 0)
-toggleRow("Disable shadows", "disableShadows", 32)
-toggleRow("Disable fog", "disableFog", 64)
-toggleRow("Always Day", "alwaysDay", 96)
-toggleRow("Disable shift walk", "disableShiftWalk", 128)
-toggleRow("Prevent AFK kick", "preventAfkKick", 160)
-toggleRow("Infinite jump", "infiniteJump", 192)
-toggleRow("No clip", "noClip", 224)
+local headerColor = Color3.fromRGB(210, 210, 210)
+titleRule(settingsPage, "Movement", 0, 22, 15, headerColor, 1)
+toggleRow("Ctrl Click", "ctrlClick", 2)
+toggleRow("Disable shift walk", "disableShiftWalk", 3)
+toggleRow("Infinite jump", "infiniteJump", 4)
+toggleRow("No clip", "noClip", 5)
+titleRule(settingsPage, "World", 0, 22, 15, headerColor, 6)
+toggleRow("Disable shadows", "disableShadows", 7)
+toggleRow("Disable fog", "disableFog", 8)
+toggleRow("Always Day", "alwaysDay", 9)
+toggleRow("Enhanced visuals", "enhancedVisuals", 10)
+toggleRow("Lower bridge", "lowerBridge", 11)
+titleRule(settingsPage, "Player", 0, 22, 15, headerColor, 12)
+toggleRow("Prevent AFK kick", "preventAfkKick", 13)
+titleRule(settingsPage, "Window", 0, 22, 15, headerColor, 14)
 
+local keyRow = make("Frame", {
+    Size = UDim2.new(1, 0, 0, 22),
+    BackgroundTransparency = 1,
+    LayoutOrder = 15,
+}, settingsPage)
 make("TextLabel", {
-    Size = UDim2.new(1, -96, 0, 22),
-    Position = UDim2.fromOffset(0, 256),
+    Size = UDim2.new(1, -96, 1, 0),
     BackgroundTransparency = 1,
     Font = Enum.Font.SourceSans,
-    Text = "Toggle key",
+    Text = "UI Toggle key",
     TextSize = 15,
     TextColor3 = Color3.fromRGB(210, 210, 210),
     TextXAlignment = Enum.TextXAlignment.Left,
-}, settingsPage)
+}, keyRow)
 
 local keyBtn = make("TextButton", {
     Size = UDim2.fromOffset(88, 22),
-    Position = UDim2.new(1, -88, 0, 256),
+    Position = UDim2.new(1, -88, 0, 0),
     BackgroundColor3 = Color3.fromRGB(58, 58, 58),
     BorderSizePixel = 0,
     Font = Enum.Font.SourceSans,
@@ -1176,7 +1434,7 @@ local keyBtn = make("TextButton", {
     TextSize = 15,
     TextColor3 = TEXT,
     AutoButtonColor = false,
-}, settingsPage)
+}, keyRow)
 
 local function paintKeyButton()
     keyBtn.Text = toggleKey.Name
