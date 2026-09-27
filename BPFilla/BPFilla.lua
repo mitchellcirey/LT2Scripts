@@ -47,9 +47,11 @@ local lassoDragging = false
 local lassoStart = nil
 local clickFill = false
 local filling = false
+local deleting = false
 local busy = false
 local runToken = 0
 local fillToken = 0
+local deleteToken = 0
 local homeCFrame = nil
 
 local selectedClass = nil
@@ -70,6 +72,7 @@ local dashWindow = nil
 local root = nil
 local range = nil
 local fillBtn = nil
+local deleteBtn = nil
 local countLabel = nil
 local typeButton = nil
 local typeLabel = nil
@@ -211,12 +214,29 @@ local function resolveModel(target)
     return nil
 end
 
+local function typeValue(model)
+    local typeVal = model and model:FindFirstChild("Type")
+    if typeVal and typeVal:IsA("StringValue") then
+        return typeVal.Value
+    end
+    return nil
+end
+
 local function isBlueprint(model)
+    return model and model:IsA("Model") and isOwned(model) and typeValue(model) == "Blueprint"
+        and model:FindFirstChild("PurchasedBoxItemName") == nil
+end
+
+local function isStructure(model)
     if not model or not model:IsA("Model") or not isOwned(model) then
         return false
     end
-    local typeVal = model:FindFirstChild("Type")
-    return typeVal and typeVal:IsA("StringValue") and typeVal.Value == "Blueprint"
+    local kind = typeValue(model)
+    return kind == "Structure" or kind == "Vehicle Spot"
+end
+
+local function isSelectable(model)
+    return isBlueprint(model) or isStructure(model)
 end
 
 local function blueprintCenter(model)
@@ -256,20 +276,6 @@ local function scanPlanks(className)
                     })
                 end
             end
-        end
-    end
-    return result
-end
-
-local function ownedBlueprints()
-    local result = {}
-    local folder = playerModels()
-    if not folder then
-        return result
-    end
-    for _, model in ipairs(folder:GetChildren()) do
-        if isBlueprint(model) then
-            table.insert(result, model)
         end
     end
     return result
@@ -622,16 +628,30 @@ local function toggleBlueprint(model)
     table.insert(chosen, model)
 end
 
-local function blueprintFromTarget(target)
+local function selectableFromTarget(target)
     local model = resolveModel(target)
-    if isBlueprint(model) then
+    if isSelectable(model) then
         return model
     end
     return nil
 end
 
+local function ownedSelectable()
+    local result = {}
+    local folder = playerModels()
+    if not folder then
+        return result
+    end
+    for _, model in ipairs(folder:GetChildren()) do
+        if isSelectable(model) then
+            table.insert(result, model)
+        end
+    end
+    return result
+end
+
 local function selectClick()
-    local model = blueprintFromTarget(Mouse.Target)
+    local model = selectableFromTarget(Mouse.Target)
     if not model then
         return
     end
@@ -640,14 +660,19 @@ local function selectClick()
 end
 
 local function selectGroup()
-    local model = blueprintFromTarget(Mouse.Target)
+    local model = selectableFromTarget(Mouse.Target)
     if not model then
         return
     end
     local name = itemName(model)
-    for _, blueprint in ipairs(ownedBlueprints()) do
-        if itemName(blueprint) == name then
-            toggleBlueprint(blueprint)
+    local boxed = model:FindFirstChild("PurchasedBoxItemName") ~= nil
+    local structure = isStructure(model)
+    for _, other in ipairs(ownedSelectable()) do
+        if itemName(other) == name and isStructure(other) == structure then
+            local otherBoxed = other:FindFirstChild("PurchasedBoxItemName") ~= nil
+            if not structure or otherBoxed == boxed then
+                toggleBlueprint(other)
+            end
         end
     end
     drawOutlines()
@@ -719,7 +744,7 @@ local function selectLasso(startPos, endPos)
         return
     end
     local inset = Services.GuiService:GetGuiInset()
-    for _, model in ipairs(ownedBlueprints()) do
+    for _, model in ipairs(ownedSelectable()) do
         local screenPos, onScreen = cam:WorldToScreenPoint(blueprintCenter(model))
         local sx = screenPos.X + inset.X
         local sy = screenPos.Y + inset.Y
@@ -789,7 +814,13 @@ local function startFill()
         warn("[Jell] BP Filla: No planks to place")
         return
     end
-    if #chosen == 0 then
+    local blueprints = {}
+    for _, model in ipairs(chosen) do
+        if isBlueprint(model) and model.Parent then
+            table.insert(blueprints, model)
+        end
+    end
+    if #blueprints == 0 then
         warn("[Jell] BP Filla: No blueprints selected")
         return
     end
@@ -798,7 +829,7 @@ local function startFill()
     filling = true
     paintFill()
     task.spawn(function()
-        for index, blueprint in ipairs(chosen) do
+        for index, blueprint in ipairs(blueprints) do
             if token ~= fillToken or not started then
                 break
             end
@@ -815,6 +846,81 @@ local function startFill()
             filling = false
             paintFill()
         end
+    end)
+end
+
+local function paintDelete()
+    if deleteBtn and deleteBtn.Parent then
+        deleteBtn.Text = deleting and "Stop" or "Delete"
+    end
+end
+
+local function stopDelete()
+    deleteToken += 1
+    deleting = false
+    paintDelete()
+end
+
+local function startDelete()
+    if deleting then
+        stopDelete()
+        return
+    end
+    local targets = {}
+    for _, model in ipairs(chosen) do
+        if model.Parent and isSelectable(model) then
+            table.insert(targets, model)
+        end
+    end
+    if #targets == 0 then
+        warn("[Jell] BP Filla: Nothing selected")
+        return
+    end
+    local interaction = ReplicatedStorage:FindFirstChild("Interaction")
+    local remote = interaction and interaction:FindFirstChild("DestroyStructure")
+    if not remote then
+        warn("[Jell] BP Filla: DestroyStructure remote not found")
+        return
+    end
+    deleteToken += 1
+    local token = deleteToken
+    deleting = true
+    paintDelete()
+    task.spawn(function()
+        for _, item in ipairs(targets) do
+            if token ~= deleteToken or not started then
+                break
+            end
+            if item.Parent then
+                local elapsed = 0
+                while item.Parent and elapsed < 5 do
+                    if token ~= deleteToken or not started then
+                        break
+                    end
+                    pcall(function()
+                        remote:FireServer(item)
+                    end)
+                    task.wait(0.05)
+                    elapsed += 0.05
+                end
+                if item.Parent then
+                    warn("[Jell] BP Filla: Timed out deleting " .. item.Name)
+                end
+            end
+        end
+        if token ~= deleteToken then
+            return
+        end
+        local keep = {}
+        for _, model in ipairs(chosen) do
+            if model.Parent then
+                table.insert(keep, model)
+            end
+        end
+        chosen = keep
+        deleting = false
+        drawOutlines()
+        paintDelete()
     end)
 end
 
@@ -1366,7 +1472,7 @@ local function build(parent)
         Size = UDim2.new(1, -40, 1, 0),
         BackgroundTransparency = 1,
         Font = Enum.Font.SourceSans,
-        Text = "Blueprints",
+        Text = "Selected",
         TextSize = 15,
         TextColor3 = LABEL,
         TextXAlignment = Enum.TextXAlignment.Left,
@@ -1453,9 +1559,19 @@ local function build(parent)
         startFill()
     end)
 
+    heading(list, "Deletion", 12)
+    deleteBtn = actionRow(list, "Delete selection", "Delete", 13)
+    deleteBtn.MouseButton1Click:Connect(function()
+        if not started then
+            return
+        end
+        startDelete()
+    end)
+
     paintType()
     paintModes()
     paintFill()
+    paintDelete()
     paintClick()
     paintCount()
 end
@@ -1480,6 +1596,7 @@ function api.stop()
     groupSelect = false
     lasso = false
     clickFill = false
+    stopDelete()
     closeMenu()
     hideLasso()
     if lassoGui then
@@ -1537,6 +1654,7 @@ function api.unmount()
     end
     range = nil
     fillBtn = nil
+    deleteBtn = nil
     countLabel = nil
     typeButton = nil
     typeLabel = nil
