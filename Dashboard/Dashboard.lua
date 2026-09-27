@@ -42,6 +42,12 @@ local SCRIPTS = {
         power = false,
     },
     {
+        id = "Shop",
+        name = "Shop",
+        url = BASE .. "Shop/Shop.lua",
+        power = false,
+    },
+    {
         id = "Teleports",
         name = "Teleports",
         url = BASE .. "Teleports/Teleports.lua",
@@ -88,15 +94,28 @@ local savedLighting
 local shownId
 
 _G.JellSawmillCircleOk = false
+_G.JellSawmillHighlightOk = false
 
 local function clearSawmillRing()
-    if _G.JellSawmillCircleOk then
-        return
-    end
     local world = Services.Workspace
     for _, child in ipairs(world:GetChildren()) do
-        if child.Name == "SawmillLoaderAura" or child.Name == "AuraCircle" then
+        if child.Name == "AuraCircle" then
             child:Destroy()
+        elseif child.Name == "SawmillLoaderAura" and not _G.JellSawmillCircleOk then
+            child:Destroy()
+        end
+    end
+    if _G.JellSawmillHighlightOk then
+        return
+    end
+    for _, folderName in ipairs({ "LogModels", "PlayerModels" }) do
+        local folder = world:FindFirstChild(folderName)
+        if folder then
+            for _, desc in ipairs(folder:GetDescendants()) do
+                if desc.Name == "SawmillLoaderHighlight" then
+                    desc:Destroy()
+                end
+            end
         end
     end
 end
@@ -779,13 +798,27 @@ local function ensureLoaded(entry)
     return result
 end
 
+local homeShown = true
+local homeRow
+local homeBtn
+
+local function paintHome()
+    if not homeBtn then
+        return
+    end
+    homeBtn.TextColor3 = homeShown and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(210, 210, 210)
+    homeRow.BackgroundColor3 = homeShown and ROW or SIDEBAR
+end
+
 local function showSettings()
     settingsPage.Visible = true
     scriptHost.Visible = false
     welcomePage.Visible = false
     shownId = nil
+    homeShown = false
     settingsBtn.Font = Enum.Font.SourceSansBold
     settingsBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    paintHome()
     for _, entry in ipairs(SCRIPTS) do
         states[entry.id].shown = false
         paint(entry)
@@ -794,6 +827,8 @@ end
 
 local function showScriptPage(entry)
     local state = states[entry.id]
+    homeShown = false
+    paintHome()
     settingsPage.Visible = false
     welcomePage.Visible = false
     settingsBtn.Font = Enum.Font.SourceSans
@@ -852,6 +887,8 @@ local function openScript(entry)
         if shownId == nil and not settingsPage.Visible then
             welcomePage.Visible = true
             scriptHost.Visible = false
+            homeShown = true
+            paintHome()
         end
         paintLock()
         warn("[Jell] " .. entry.name .. " failed to open: " .. tostring(err))
@@ -948,6 +985,45 @@ table.sort(listOrder, function(a, b)
     end
     return rank[a] < rank[b]
 end)
+
+homeRow = make("Frame", {
+    Size = UDim2.new(1, 0, 0, 24),
+    BackgroundColor3 = SIDEBAR,
+    BorderSizePixel = 0,
+    LayoutOrder = 0,
+}, scriptList)
+homeBtn = make("TextButton", {
+    Size = UDim2.fromScale(1, 1),
+    BackgroundTransparency = 1,
+    Font = Enum.Font.SourceSans,
+    Text = "Home",
+    TextSize = 15,
+    TextColor3 = Color3.fromRGB(210, 210, 210),
+    TextXAlignment = Enum.TextXAlignment.Left,
+    TextTruncate = Enum.TextTruncate.AtEnd,
+    AutoButtonColor = false,
+}, homeRow)
+make("UIPadding", {
+    PaddingLeft = UDim.new(0, 6),
+}, homeBtn)
+
+local function showHome()
+    settingsPage.Visible = false
+    scriptHost.Visible = false
+    welcomePage.Visible = true
+    shownId = nil
+    settingsBtn.Font = Enum.Font.SourceSans
+    settingsBtn.TextColor3 = Color3.fromRGB(210, 210, 210)
+    homeShown = true
+    paintHome()
+    for _, entry in ipairs(SCRIPTS) do
+        states[entry.id].shown = false
+        paint(entry)
+    end
+end
+
+homeBtn.MouseButton1Click:Connect(showHome)
+paintHome()
 
 for index, entry in ipairs(listOrder) do
     local row = make("Frame", {
@@ -1175,6 +1251,7 @@ local function shutdown()
         RunService:UnbindFromRenderStep("JellClearSawmillRing")
     end)
     _G.JellSawmillCircleOk = false
+    _G.JellSawmillHighlightOk = false
     clearSawmillRing()
     restoreLighting()
     disconnectShared(AFK_CONN)

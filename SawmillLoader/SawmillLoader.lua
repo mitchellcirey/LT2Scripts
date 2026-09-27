@@ -456,18 +456,21 @@ local function drawAura(centerPosition)
         local angle2 = ((i + 1) / segments) * math.pi * 2
         local p1 = centerPosition + Vector3.new(math.cos(angle1) * MAX_STUDS, 0, math.sin(angle1) * MAX_STUDS)
         local p2 = centerPosition + Vector3.new(math.cos(angle2) * MAX_STUDS, 0, math.sin(angle2) * MAX_STUDS)
-        local midpoint = (p1 + p2) / 2
-        local segment = Instance.new("Part")
-        segment.Anchored = true
-        segment.CanCollide = false
-        segment.CanQuery = false
-        segment.CanTouch = false
-        segment.Material = Enum.Material.Neon
-        segment.Color = running and RING_GREEN or RING_CYAN
-        segment.Transparency = 0.22
-        segment.Size = Vector3.new(thickness, RING_HEIGHT, (p2 - p1).Magnitude)
-        segment.CFrame = CFrame.lookAt(midpoint, p2)
-        segment.Parent = folder
+        local dir = Vector3.new(p2.X - p1.X, 0, p2.Z - p1.Z)
+        if dir.Magnitude > 0 then
+            local midpoint = Vector3.new((p1.X + p2.X) * 0.5, centerPosition.Y, (p1.Z + p2.Z) * 0.5)
+            local segment = Instance.new("Part")
+            segment.Anchored = true
+            segment.CanCollide = false
+            segment.CanQuery = false
+            segment.CanTouch = false
+            segment.Material = Enum.Material.Neon
+            segment.Color = running and RING_GREEN or RING_CYAN
+            segment.Transparency = 0.22
+            segment.Size = Vector3.new(thickness, RING_HEIGHT, dir.Magnitude)
+            segment.CFrame = CFrame.lookAt(midpoint, midpoint + dir, Vector3.yAxis)
+            segment.Parent = folder
+        end
     end
 end
 
@@ -518,6 +521,11 @@ local function ensureCircle()
         if not auraFolder then
             return
         end
+        for _, child in ipairs(Workspace:GetChildren()) do
+            if child ~= auraFolder and (child.Name == "SawmillLoaderAura" or child.Name == "AuraCircle") then
+                child:Destroy()
+            end
+        end
         local color = running and RING_GREEN or RING_CYAN
         local alpha = 0.22
         if running then
@@ -559,6 +567,19 @@ local function clearHighlights()
         end
     end
     table.clear(marks)
+    local function sweep(folder)
+        if not folder then
+            return
+        end
+        for _, desc in ipairs(folder:GetDescendants()) do
+            if desc.Name == "SawmillLoaderHighlight" then
+                desc:Destroy()
+            end
+        end
+    end
+    sweep(Workspace:FindFirstChild("LogModels"))
+    sweep(Workspace:FindFirstChild("PlayerModels"))
+    _G.JellSawmillHighlightOk = false
 end
 
 local function addMark(model, color)
@@ -579,11 +600,23 @@ end
 
 local function refreshHighlights()
     clearHighlights()
-    if not armed or running then
+    if not armed or running or type(selectedWood) ~= "string" or not woodSet[selectedWood] then
+        if armed and not running and type(selectedSawmill) == "string" and selectedSawmill ~= "" then
+            local owner = findPlayer(sawmillOwner)
+            if owner then
+                for _, mill in ipairs(getPlayerSawmills(owner)) do
+                    if mill.key == selectedSawmill then
+                        addMark(mill.model, MILL_MARK)
+                        break
+                    end
+                end
+            end
+            _G.JellSawmillHighlightOk = #marks > 0
+        end
         return
     end
     local owner = findPlayer(sawmillOwner)
-    if owner and selectedSawmill then
+    if owner and type(selectedSawmill) == "string" and selectedSawmill ~= "" then
         for _, mill in ipairs(getPlayerSawmills(owner)) do
             if mill.key == selectedSawmill then
                 addMark(mill.model, MILL_MARK)
@@ -594,29 +627,29 @@ local function refreshHighlights()
     local woodPlayer = findPlayer(woodOwner)
     local logModels = Workspace:FindFirstChild("LogModels")
     local rootPart = currentRoot()
-    if not logModels or not woodPlayer then
-        return
-    end
-    local matches = {}
-    for _, log in ipairs(logModels:GetChildren()) do
-        if log:FindFirstChild("Owner") and (log.Owner.Value == nil or log.Owner.Value == woodPlayer) and log.Name ~= "PlaceholderPart" then
-            local treeClass = log:FindFirstChild("TreeClass")
-            if treeClass and treeClass.Value == selectedWood then
-                local target = log:FindFirstChild("Main") or log:FindFirstChildWhichIsA("BasePart")
-                local dist = 0
-                if target and rootPart then
-                    dist = (target.Position - rootPart.Position).Magnitude
+    if logModels and woodPlayer then
+        local matches = {}
+        for _, log in ipairs(logModels:GetChildren()) do
+            if log:FindFirstChild("Owner") and (log.Owner.Value == nil or log.Owner.Value == woodPlayer) and log.Name ~= "PlaceholderPart" then
+                local treeClass = log:FindFirstChild("TreeClass")
+                if treeClass and treeClass.Value == selectedWood then
+                    local target = log:FindFirstChild("Main") or log:FindFirstChildWhichIsA("BasePart")
+                    local dist = 0
+                    if target and rootPart then
+                        dist = (target.Position - rootPart.Position).Magnitude
+                    end
+                    table.insert(matches, { model = log, dist = dist })
                 end
-                table.insert(matches, { model = log, dist = dist })
             end
         end
+        table.sort(matches, function(a, b)
+            return a.dist < b.dist
+        end)
+        for index = 1, math.min(#matches, MAX_WOOD_MARKS) do
+            addMark(matches[index].model, WOOD_MARK)
+        end
     end
-    table.sort(matches, function(a, b)
-        return a.dist < b.dist
-    end)
-    for index = 1, math.min(#matches, MAX_WOOD_MARKS) do
-        addMark(matches[index].model, WOOD_MARK)
-    end
+    _G.JellSawmillHighlightOk = #marks > 0
 end
 
 local function unwatchHighlights()
@@ -1011,7 +1044,11 @@ local function build(parent)
         paintCaption("sawmill", sawmillCaption())
         paintCaption("wood", selectedWood or "")
         paintRun()
-        refreshHighlights()
+        if armed and not running then
+            refreshHighlights()
+        else
+            clearHighlights()
+        end
     end
 
     sawmillOwnerBtn.MouseButton1Click:Connect(function()
@@ -1170,5 +1207,7 @@ function api.unmount()
         unwatchHighlights()
     end
 end
+
+clearHighlights()
 
 return api
