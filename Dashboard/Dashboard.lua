@@ -42,6 +42,7 @@ local CLICK_ACTION = "JellDashboardClickTp"
 local TOGGLE_ACTION = "JellDashboardToggle"
 local LIGHTING_STEP = "JellDashboardLighting"
 local MOVE_STEP = "JellDashboardShiftWalk"
+local AFK_CONN = "JellDashboardAfk"
 
 local RED = Color3.fromRGB(210, 70, 70)
 local GREEN = Color3.fromRGB(70, 190, 105)
@@ -58,10 +59,11 @@ local TOGGLE_TWEEN = TweenInfo.new(0.2)
 
 local settings = {
     ctrlClick = true,
-    disableShadows = true,
+    disableShadows = false,
     disableFog = true,
-    alwaysDay = true,
+    alwaysDay = false,
     disableShiftWalk = true,
+    preventAfkKick = true,
 }
 
 local toggleKey = Enum.KeyCode.Tab
@@ -544,6 +546,35 @@ end
 
 bindShiftWalk()
 
+local function unbindAfk()
+    local conn = shared[AFK_CONN]
+    if conn then
+        pcall(function()
+            conn:Disconnect()
+        end)
+        shared[AFK_CONN] = nil
+    end
+end
+
+local function bindAfk()
+    unbindAfk()
+    if not settings.preventAfkKick then
+        return
+    end
+    shared[AFK_CONN] = Player.Idled:Connect(function()
+        if not settings.preventAfkKick then
+            return
+        end
+        pcall(function()
+            local virtualUser = Services.VirtualUser
+            virtualUser:CaptureController()
+            virtualUser:ClickButton2(Vector2.new(0, 0))
+        end)
+    end)
+end
+
+bindAfk()
+
 local ctx = {
     screenGui = screenGui,
     window = window,
@@ -816,6 +847,10 @@ local function toggleRow(labelText, key, y)
             bindShiftWalk()
             return
         end
+        if key == "preventAfkKick" then
+            bindAfk()
+            return
+        end
         if key == "alwaysDay" and not settings.alwaysDay then
             restoreAlwaysDay()
         elseif key == "disableShadows" and not settings.disableShadows then
@@ -833,10 +868,11 @@ toggleRow("Disable shadows", "disableShadows", 32)
 toggleRow("Disable fog", "disableFog", 64)
 toggleRow("Always Day", "alwaysDay", 96)
 toggleRow("Disable shift walk", "disableShiftWalk", 128)
+toggleRow("Prevent AFK kick", "preventAfkKick", 160)
 
 make("TextLabel", {
     Size = UDim2.new(1, -96, 0, 22),
-    Position = UDim2.fromOffset(0, 160),
+    Position = UDim2.fromOffset(0, 192),
     BackgroundTransparency = 1,
     Font = Enum.Font.SourceSans,
     Text = "Toggle key",
@@ -847,7 +883,7 @@ make("TextLabel", {
 
 local keyBtn = make("TextButton", {
     Size = UDim2.fromOffset(88, 22),
-    Position = UDim2.new(1, -88, 0, 160),
+    Position = UDim2.new(1, -88, 0, 192),
     BackgroundColor3 = Color3.fromRGB(58, 58, 58),
     BorderSizePixel = 0,
     Font = Enum.Font.SourceSans,
@@ -940,6 +976,7 @@ local function shutdown()
         RunService:UnbindFromRenderStep(MOVE_STEP)
     end)
     restoreLighting()
+    unbindAfk()
     screenGui:Destroy()
 end
 
