@@ -24,6 +24,7 @@ local LABEL = Color3.fromRGB(210, 210, 210)
 local GREEN = Color3.fromRGB(70, 190, 105)
 local STROKE = Color3.fromRGB(70, 70, 70)
 local PICKED = Color3.fromRGB(230, 230, 230)
+local BAND = Color3.fromRGB(32, 32, 32)
 
 local ROW_H = 22
 local BTN_W = 88
@@ -1737,6 +1738,23 @@ local function watchBlueprints()
     end
 end
 
+local function stripeList(list)
+    local rows = {}
+    for _, child in ipairs(list:GetChildren()) do
+        if child:GetAttribute("Stripe") then
+            table.insert(rows, child)
+        end
+    end
+    table.sort(rows, function(a, b)
+        return a.LayoutOrder < b.LayoutOrder
+    end)
+    for index, row in ipairs(rows) do
+        row.BackgroundColor3 = BAND
+        row.BackgroundTransparency = index % 2 == 0 and 0 or 1
+        row.BorderSizePixel = 0
+    end
+end
+
 local function heading(parent, text, order)
     local row = make("Frame", {
         Size = UDim2.new(1, 0, 0, 18),
@@ -1797,6 +1815,7 @@ local function actionRow(parent, labelText, buttonText, order)
         AutoButtonColor = false,
     }, row)
     button:SetAttribute("Enabled", true)
+    row:SetAttribute("Stripe", true)
     return button
 end
 
@@ -1806,6 +1825,7 @@ local function switchRow(parent, labelText, order, getOn, setOn)
         BackgroundTransparency = 1,
         LayoutOrder = order,
     }, parent)
+    row:SetAttribute("Stripe", true)
     make("TextLabel", {
         Size = UDim2.new(1, -40, 1, 0),
         BackgroundTransparency = 1,
@@ -1995,7 +2015,7 @@ local function build(parent)
     heading(list, "Shop", 1)
     local items = loadItems()
     if not items then
-        make("TextLabel", {
+        local missing = make("TextLabel", {
             Size = UDim2.new(1, 0, 0, ROW_H),
             BackgroundTransparency = 1,
             Font = Enum.Font.SourceSans,
@@ -2005,6 +2025,8 @@ local function build(parent)
             TextXAlignment = Enum.TextXAlignment.Left,
             LayoutOrder = 2,
         }, list)
+        missing:SetAttribute("Stripe", true)
+        stripeList(list)
         return
     end
     if not selectedId then
@@ -2066,6 +2088,7 @@ local function build(parent)
         BackgroundTransparency = 1,
         LayoutOrder = 4,
     }, list)
+    qtyRow:SetAttribute("Stripe", true)
     make("TextLabel", {
         Size = UDim2.new(1, -40, 0, 16),
         BackgroundTransparency = 1,
@@ -2197,6 +2220,7 @@ local function build(parent)
         rukiryBtn.Text = "Stop"
         setEnabled(rukiryBtn, true)
     end
+    stripeList(list)
 end
 
 local api = {}

@@ -1504,6 +1504,21 @@ local function buildInterface(parent, ctx)
         Visible = false,
     }, root)
 
+    local function settingsBand(y, height, index)
+        make("Frame", {
+            Size = UDim2.new(1, 0, 0, height),
+            Position = UDim2.fromOffset(0, y),
+            BackgroundColor3 = Color3.fromRGB(32, 32, 32),
+            BackgroundTransparency = index % 2 == 0 and 0 or 1,
+            BorderSizePixel = 0,
+            ZIndex = 0,
+        }, settingsPage)
+    end
+    settingsBand(0, 36, 1)
+    settingsBand(44, 22, 2)
+    settingsBand(68, 22, 3)
+    settingsBand(92, 22, 4)
+
     local function amountText()
         if logLimit == nil then
             return "Unlimited"
@@ -1813,6 +1828,7 @@ local function buildInterface(parent, ctx)
 
         local order = 0
         local shown = 0
+        local band = 0
         for _, group in ipairs(cachedOwnedGroups) do
             local visible = {}
             for _, entry in ipairs(group.items) do
@@ -1836,10 +1852,13 @@ local function buildInterface(parent, ctx)
             for _, entry in ipairs(visible) do
                 order += 1
                 shown += 1
+                band += 1
                 local on = selected[entry.id] == true
                 local btn = make("TextButton", {
                     Size = UDim2.new(1, 0, 0, 18),
-                    BackgroundTransparency = 1,
+                    BackgroundColor3 = Color3.fromRGB(32, 32, 32),
+                    BackgroundTransparency = band % 2 == 0 and 0 or 1,
+                    BorderSizePixel = 0,
                     Font = Enum.Font.SourceSans,
                     Text = rowText(entry, on),
                     TextSize = 15,

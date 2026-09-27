@@ -27,6 +27,7 @@ local FIELD = Color3.fromRGB(58, 58, 58)
 local TRACK = Color3.fromRGB(40, 40, 40)
 local GREEN = Color3.fromRGB(70, 190, 105)
 local WHITE = Color3.fromRGB(255, 255, 255)
+local BAND = Color3.fromRGB(32, 32, 32)
 
 local TOGGLE_W = 28
 local TOGGLE_H = 14
@@ -1619,12 +1620,32 @@ local function fieldLabel(parent, text)
     }, parent)
 end
 
+local function stripeList(list)
+    local rows = {}
+    for _, child in ipairs(list:GetChildren()) do
+        if child:GetAttribute("Stripe") then
+            table.insert(rows, child)
+        end
+    end
+    table.sort(rows, function(a, b)
+        return a.LayoutOrder < b.LayoutOrder
+    end)
+    for index, row in ipairs(rows) do
+        row.BackgroundColor3 = BAND
+        row.BackgroundTransparency = index % 2 == 0 and 0 or 1
+        row.BorderSizePixel = 0
+    end
+end
+
 local function block(parent, height, order)
-    return make("Frame", {
+    local row = make("Frame", {
         Size = UDim2.new(1, 0, 0, height),
         BackgroundTransparency = 1,
+        BorderSizePixel = 0,
         LayoutOrder = order,
     }, parent)
+    row:SetAttribute("Stripe", true)
+    return row
 end
 
 local function toggleButton(parent)
@@ -1849,6 +1870,8 @@ local function build(parent)
     ui.origin = labeledToggle(settingsList, "Return to origin", 4)
     ui.match = labeledToggle(settingsList, "Match plank size", 5)
     ui.timeoutLabel, ui.timeoutSlider, ui.timeoutFill = labeledSlider(settingsList, 6)
+    stripeList(toolsList)
+    stripeList(settingsList)
 
     ui.click.MouseButton1Click:Connect(function()
         setMode("click", not clickSelect)

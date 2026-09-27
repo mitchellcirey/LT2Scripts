@@ -45,7 +45,7 @@ local SCRIPTS = {
     },
     {
         id = "BPFilla",
-        name = "BP Filla",
+        name = "Builder",
         url = BASE .. "BPFilla/BPFilla.lua",
     },
     {
@@ -2395,12 +2395,30 @@ for index, entry in ipairs(SCRIPTS) do
     end
 end
 
+local function stripeList(list)
+    local rows = {}
+    for _, child in ipairs(list:GetChildren()) do
+        if child:GetAttribute("Stripe") then
+            table.insert(rows, child)
+        end
+    end
+    table.sort(rows, function(a, b)
+        return a.LayoutOrder < b.LayoutOrder
+    end)
+    for index, row in ipairs(rows) do
+        row.BackgroundColor3 = Theme.ROW
+        row.BackgroundTransparency = index % 2 == 0 and 0 or 1
+        row.BorderSizePixel = 0
+    end
+end
+
 local function toggleRow(labelText, key, order)
     local row = make("Frame", {
         Size = UDim2.new(1, 0, 0, 22),
         BackgroundTransparency = 1,
         LayoutOrder = order,
     }, settingsPage)
+    row:SetAttribute("Stripe", true)
     make("TextLabel", {
         Size = UDim2.new(1, -64, 1, 0),
         BackgroundTransparency = 1,
@@ -2487,6 +2505,7 @@ local keyRow = make("Frame", {
     BackgroundTransparency = 1,
     LayoutOrder = 16,
 }, settingsPage)
+keyRow:SetAttribute("Stripe", true)
 make("TextLabel", {
     Size = UDim2.new(1, -96, 1, 0),
     BackgroundTransparency = 1,
@@ -2514,6 +2533,8 @@ local opacityRow = make("Frame", {
     BackgroundTransparency = 1,
     LayoutOrder = 17,
 }, settingsPage)
+opacityRow:SetAttribute("Stripe", true)
+stripeList(settingsPage)
 make("TextLabel", {
     Size = UDim2.new(1, -40, 0, 16),
     BackgroundTransparency = 1,

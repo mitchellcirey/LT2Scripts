@@ -2454,7 +2454,9 @@ end
 function F.block(parent, height, order)
     return F.make("Frame", {
         Size = UDim2.new(1, 0, 0, height),
-        BackgroundTransparency = 1,
+        BackgroundColor3 = Color3.fromRGB(32, 32, 32),
+        BackgroundTransparency = order % 2 == 0 and 0 or 1,
+        BorderSizePixel = 0,
         LayoutOrder = order,
     }, parent)
 end

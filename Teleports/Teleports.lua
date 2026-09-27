@@ -15,6 +15,7 @@ local DARK = Color3.fromRGB(18, 18, 18)
 local BUTTON = Color3.fromRGB(230, 230, 230)
 local FIELD = Color3.fromRGB(58, 58, 58)
 local MENU = Color3.fromRGB(32, 32, 32)
+local BAND = Color3.fromRGB(32, 32, 32)
 local HOVER = Color3.fromRGB(120, 120, 120)
 
 local ROW_H = 22
@@ -380,12 +381,30 @@ local function openMenu(button, options, current, onPick)
     end
 end
 
+local function stripeList(list)
+    local rows = {}
+    for _, child in ipairs(list:GetChildren()) do
+        if child:GetAttribute("Stripe") then
+            table.insert(rows, child)
+        end
+    end
+    table.sort(rows, function(a, b)
+        return a.LayoutOrder < b.LayoutOrder
+    end)
+    for index, row in ipairs(rows) do
+        row.BackgroundColor3 = BAND
+        row.BackgroundTransparency = index % 2 == 0 and 0 or 1
+        row.BorderSizePixel = 0
+    end
+end
+
 local function field(parent, caption, order)
     local block = make("Frame", {
         Size = UDim2.new(1, 0, 0, 42),
         BackgroundTransparency = 1,
         LayoutOrder = order,
     }, parent)
+    block:SetAttribute("Stripe", true)
     make("TextLabel", {
         Size = UDim2.new(1, 0, 0, 16),
         BackgroundTransparency = 1,
@@ -610,6 +629,7 @@ local function build(parent)
         closeMenu()
         teleportToPlot()
     end)
+    stripeList(list)
 end
 
 local api = {}

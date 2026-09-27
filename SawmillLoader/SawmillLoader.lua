@@ -19,6 +19,7 @@ local TEXT = Color3.fromRGB(230, 230, 230)
 local MUTED = Color3.fromRGB(160, 160, 160)
 local FIELD = Color3.fromRGB(58, 58, 58)
 local MENU = Color3.fromRGB(32, 32, 32)
+local BAND = Color3.fromRGB(32, 32, 32)
 local HOVER = Color3.fromRGB(120, 120, 120)
 local START_GREEN = Color3.fromRGB(70, 190, 105)
 local STOP_RED = Color3.fromRGB(210, 70, 70)
@@ -978,12 +979,30 @@ local function openMenu(button, options, current, onPick)
     end
 end
 
+local function stripeList(list)
+    local rows = {}
+    for _, child in ipairs(list:GetChildren()) do
+        if child:GetAttribute("Stripe") then
+            table.insert(rows, child)
+        end
+    end
+    table.sort(rows, function(a, b)
+        return a.LayoutOrder < b.LayoutOrder
+    end)
+    for index, row in ipairs(rows) do
+        row.BackgroundColor3 = BAND
+        row.BackgroundTransparency = index % 2 == 0 and 0 or 1
+        row.BorderSizePixel = 0
+    end
+end
+
 local function field(parent, caption, order)
     local block = make("Frame", {
         Size = UDim2.new(1, 0, 0, 42),
         BackgroundTransparency = 1,
         LayoutOrder = order,
     }, parent)
+    block:SetAttribute("Stripe", true)
     make("TextLabel", {
         Size = UDim2.new(1, 0, 0, 16),
         BackgroundTransparency = 1,
@@ -1057,6 +1076,7 @@ local function build(parent)
         BackgroundTransparency = 1,
         LayoutOrder = 5,
     }, list)
+    runBlock:SetAttribute("Stripe", true)
     make("TextLabel", {
         Size = UDim2.new(1, 0, 0, 16),
         BackgroundTransparency = 1,
@@ -1149,6 +1169,7 @@ local function build(parent)
     end)
 
     paintFields()
+    stripeList(list)
 end
 
 local api = {}

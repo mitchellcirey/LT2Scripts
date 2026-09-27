@@ -23,6 +23,7 @@ local GREEN = Color3.fromRGB(70, 190, 105)
 local CONFIRM = Color3.fromRGB(160, 40, 40)
 local CONFIRM_TEXT = Color3.fromRGB(255, 160, 160)
 local STROKE = Color3.fromRGB(70, 70, 70)
+local BAND = Color3.fromRGB(32, 32, 32)
 local MENU = Color3.fromRGB(32, 32, 32)
 local HOVER = Color3.fromRGB(120, 120, 120)
 local OUTLINE = Color3.fromRGB(0, 255, 255)
@@ -511,7 +512,7 @@ local function teleportSingle(target, goalCF, rootPart, token)
     end
     local remote = dragRemote()
     if not remote then
-        warn("[Jell] BP Filla: Drag remote missing")
+        warn("[Jell] Builder: Drag remote missing")
         return
     end
     local model = target:FindFirstAncestorOfClass("Model") or target.Parent
@@ -616,7 +617,7 @@ local function teleportObject(part, goalCF, returnHome)
     end
     local rootPart = currentRoot()
     if not rootPart then
-        warn("[Jell] BP Filla: No character")
+        warn("[Jell] Builder: No character")
         return false
     end
     busy = true
@@ -797,11 +798,11 @@ local function onBlueprintClicked(target)
         return
     end
     if #filteredPlanks == 0 then
-        warn("[Jell] BP Filla: No planks to place")
+        warn("[Jell] Builder: No planks to place")
         return
     end
     if busy or filling then
-        warn("[Jell] BP Filla: Busy")
+        warn("[Jell] Builder: Busy")
         return
     end
     local entry = nextPlank()
@@ -831,11 +832,11 @@ local function startFill()
         return
     end
     if busy then
-        warn("[Jell] BP Filla: Busy")
+        warn("[Jell] Builder: Busy")
         return
     end
     if #filteredPlanks == 0 then
-        warn("[Jell] BP Filla: No planks to place")
+        warn("[Jell] Builder: No planks to place")
         return
     end
     local blueprints = {}
@@ -845,7 +846,7 @@ local function startFill()
         end
     end
     if #blueprints == 0 then
-        warn("[Jell] BP Filla: No blueprints selected")
+        warn("[Jell] Builder: No blueprints selected")
         return
     end
     fillToken += 1
@@ -915,13 +916,13 @@ local function startDelete()
         end
     end
     if #targets == 0 then
-        warn("[Jell] BP Filla: Nothing selected")
+        warn("[Jell] Builder: Nothing selected")
         return
     end
     local interaction = ReplicatedStorage:FindFirstChild("Interaction")
     local remote = interaction and interaction:FindFirstChild("DestroyStructure")
     if not remote then
-        warn("[Jell] BP Filla: DestroyStructure remote not found")
+        warn("[Jell] Builder: DestroyStructure remote not found")
         return
     end
     deleteToken += 1
@@ -946,7 +947,7 @@ local function startDelete()
                     elapsed += 0.05
                 end
                 if item.Parent then
-                    warn("[Jell] BP Filla: Timed out deleting " .. item.Name)
+                    warn("[Jell] Builder: Timed out deleting " .. item.Name)
                 end
             end
         end
@@ -1051,6 +1052,23 @@ local function sweepOutlines()
     end
 end
 
+local function stripeList(list)
+    local rows = {}
+    for _, child in ipairs(list:GetChildren()) do
+        if child:GetAttribute("Stripe") then
+            table.insert(rows, child)
+        end
+    end
+    table.sort(rows, function(a, b)
+        return a.LayoutOrder < b.LayoutOrder
+    end)
+    for index, row in ipairs(rows) do
+        row.BackgroundColor3 = BAND
+        row.BackgroundTransparency = index % 2 == 0 and 0 or 1
+        row.BorderSizePixel = 0
+    end
+end
+
 local function heading(parent, text, order)
     local row = make("Frame", {
         Size = UDim2.new(1, 0, 0, 18),
@@ -1089,6 +1107,7 @@ local function actionRow(parent, labelText, buttonText, order)
         BackgroundTransparency = 1,
         LayoutOrder = order,
     }, parent)
+    row:SetAttribute("Stripe", true)
     make("TextLabel", {
         Size = UDim2.new(1, -(BTN_W + 8), 1, 0),
         BackgroundTransparency = 1,
@@ -1124,6 +1143,7 @@ local function rangeRow(parent, labelText, order, boundsMin, boundsMax, startLow
         BackgroundTransparency = 1,
         LayoutOrder = order,
     }, parent)
+    row:SetAttribute("Stripe", true)
     make("TextLabel", {
         Size = UDim2.new(1, -88, 0, 16),
         BackgroundTransparency = 1,
@@ -1396,6 +1416,7 @@ local function modeRow(parent, labelText, mode, order)
         BackgroundTransparency = 1,
         LayoutOrder = order,
     }, parent)
+    row:SetAttribute("Stripe", true)
     make("TextLabel", {
         Size = UDim2.new(1, -40, 1, 0),
         BackgroundTransparency = 1,
@@ -1464,6 +1485,7 @@ local function build(parent)
         BackgroundTransparency = 1,
         LayoutOrder = 2,
     }, list)
+    typeBlock:SetAttribute("Stripe", true)
     make("TextLabel", {
         Size = UDim2.new(1, 0, 0, 16),
         BackgroundTransparency = 1,
@@ -1510,6 +1532,7 @@ local function build(parent)
         BackgroundTransparency = 1,
         LayoutOrder = 8,
     }, list)
+    countRow:SetAttribute("Stripe", true)
     make("TextLabel", {
         Size = UDim2.new(1, -40, 1, 0),
         BackgroundTransparency = 1,
@@ -1555,6 +1578,7 @@ local function build(parent)
         BackgroundTransparency = 1,
         LayoutOrder = 10,
     }, list)
+    clickRow:SetAttribute("Stripe", true)
     make("TextLabel", {
         Size = UDim2.new(1, -40, 1, 0),
         BackgroundTransparency = 1,
@@ -1584,7 +1608,7 @@ local function build(parent)
             return
         end
         if not clickFill and #chosen == 0 then
-            warn("[Jell] BP Filla: Select blueprints first")
+            warn("[Jell] Builder: Select blueprints first")
             clickFill = false
             paintClick()
             return
@@ -1637,6 +1661,7 @@ local function build(parent)
     paintDelete()
     paintClick()
     paintCount()
+    stripeList(list)
 end
 
 local api = {}

@@ -17,6 +17,7 @@ local BUTTON = Color3.fromRGB(230, 230, 230)
 local FIELD = Color3.fromRGB(58, 58, 58)
 local LABEL = Color3.fromRGB(210, 210, 210)
 local RED = Color3.fromRGB(210, 70, 70)
+local BAND = Color3.fromRGB(32, 32, 32)
 local CONFIRM = Color3.fromRGB(160, 40, 40)
 local CONFIRM_TEXT = Color3.fromRGB(255, 160, 160)
 
@@ -95,6 +96,23 @@ local function flash(button, text, restore)
     end)
 end
 
+local function stripeList(list)
+    local rows = {}
+    for _, child in ipairs(list:GetChildren()) do
+        if child:GetAttribute("Stripe") then
+            table.insert(rows, child)
+        end
+    end
+    table.sort(rows, function(a, b)
+        return a.LayoutOrder < b.LayoutOrder
+    end)
+    for index, row in ipairs(rows) do
+        row.BackgroundColor3 = BAND
+        row.BackgroundTransparency = index % 2 == 0 and 0 or 1
+        row.BorderSizePixel = 0
+    end
+end
+
 local function heading(parent, text, order)
     local row = make("Frame", {
         Size = UDim2.new(1, 0, 0, 18),
@@ -155,6 +173,7 @@ local function actionRow(parent, labelText, buttonText, order, labelColor)
         AutoButtonColor = false,
     }, row)
     button:SetAttribute("Enabled", true)
+    row:SetAttribute("Stripe", true)
     return button
 end
 
@@ -597,6 +616,7 @@ local function build(parent)
     expandBtn.MouseButton1Click:Connect(expandLand)
     deleteBtn.MouseButton1Click:Connect(onDeleteClick)
     wipeBtn.MouseButton1Click:Connect(onWipeClick)
+    stripeList(list)
 end
 
 local api = {}
