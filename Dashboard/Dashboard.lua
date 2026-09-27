@@ -124,13 +124,7 @@ local settings = {
     axeRecovery = true,
 }
 
-local OPACITY_MIN = 20
-local OPACITY_MAX = 100
 local backgroundOpacity = 92
-
-local function clampOpacity(value)
-    return math.clamp(math.floor(value + 0.5), OPACITY_MIN, OPACITY_MAX)
-end
 
 local toggleKey = Enum.KeyCode.Tab --Enum.KeyCode.LeftAlt instead maybe??? idk whats better but changable in game
 local capturingKey = false
@@ -221,7 +215,7 @@ local function applySaved(data)
     end
     local savedOpacity = tonumber(data.backgroundOpacity)
     if savedOpacity then
-        backgroundOpacity = clampOpacity(savedOpacity)
+        backgroundOpacity = math.clamp(math.floor(savedOpacity + 0.5), 20, 100)
     end
     toggleKey = keyFromName(data.toggleKey, toggleKey)
 end
@@ -748,65 +742,67 @@ make("TextButton", {
     ZIndex = 0,
 }, window)
 
-local function userTransparency()
-    return 1 - (backgroundOpacity / 100)
-end
+do
+    local function userTransparency()
+        return 1 - (backgroundOpacity / 100)
+    end
 
-local function syncGlass(object)
-    if not object:IsA("GuiObject") or object:GetAttribute("GlassLock") then
-        return
+    local function syncGlass(object)
+        if not object:IsA("GuiObject") or object:GetAttribute("GlassLock") then
+            return
+        end
+        local transparency = object.BackgroundTransparency
+        if transparency >= 0.99 then
+            object:SetAttribute("Glass", nil)
+            return
+        end
+        if transparency <= 0.001 then
+            object:SetAttribute("Glass", true)
+        end
+        if object:GetAttribute("Glass") ~= true then
+            return
+        end
+        local target = userTransparency()
+        if math.abs(transparency - target) < 0.001 then
+            return
+        end
+        object:SetAttribute("GlassLock", true)
+        object.BackgroundTransparency = target
+        object:SetAttribute("GlassLock", nil)
     end
-    local transparency = object.BackgroundTransparency
-    if transparency >= 0.99 then
-        object:SetAttribute("Glass", nil)
-        return
-    end
-    if transparency <= 0.001 then
-        object:SetAttribute("Glass", true)
-    end
-    if object:GetAttribute("Glass") ~= true then
-        return
-    end
-    local target = userTransparency()
-    if math.abs(transparency - target) < 0.001 then
-        return
-    end
-    object:SetAttribute("GlassLock", true)
-    object.BackgroundTransparency = target
-    object:SetAttribute("GlassLock", nil)
-end
 
-local function watchGlass(object)
-    if not object:IsA("GuiObject") or object:GetAttribute("GlassWatch") then
-        return
-    end
-    object:SetAttribute("GlassWatch", true)
-    object:GetPropertyChangedSignal("BackgroundTransparency"):Connect(function()
+    local function watchGlass(object)
+        if not object:IsA("GuiObject") or object:GetAttribute("GlassWatch") then
+            return
+        end
+        object:SetAttribute("GlassWatch", true)
+        object:GetPropertyChangedSignal("BackgroundTransparency"):Connect(function()
+            syncGlass(object)
+        end)
         syncGlass(object)
-    end)
-    syncGlass(object)
-end
+    end
 
-local function applyBackground()
-    window.BackgroundTransparency = 1
-    local target = userTransparency()
-    for _, object in ipairs(window:GetDescendants()) do
-        if object:GetAttribute("Glass") == true then
-            object:SetAttribute("GlassLock", true)
-            object.BackgroundTransparency = target
-            object:SetAttribute("GlassLock", nil)
+    function Theme.applyBackground()
+        window.BackgroundTransparency = 1
+        local target = userTransparency()
+        for _, object in ipairs(window:GetDescendants()) do
+            if object:GetAttribute("Glass") == true then
+                object:SetAttribute("GlassLock", true)
+                object.BackgroundTransparency = target
+                object:SetAttribute("GlassLock", nil)
+            end
         end
     end
-end
 
-window.DescendantAdded:Connect(function(object)
-    if object:IsA("ScrollingFrame") and object.BackgroundTransparency >= 1 then
-        object.Active = true
-        -- A fully clear frame is not a click target, so the wheel would land on the blocker.
-        object.BackgroundTransparency = 0.999
-    end
-    watchGlass(object)
-end)
+    window.DescendantAdded:Connect(function(object)
+        if object:IsA("ScrollingFrame") and object.BackgroundTransparency >= 1 then
+            object.Active = true
+            -- A fully clear frame is not a click target, so the wheel would land on the blocker.
+            object.BackgroundTransparency = 0.999
+        end
+        watchGlass(object)
+    end)
+end
 
 make("Frame", {
     Name = "HeaderPlate",
@@ -2631,16 +2627,15 @@ local sliderTrack = make("Frame", {
     BorderSizePixel = 0,
 }, sliderHit)
 local sliderFill = make("Frame", {
-    Size = UDim2.new((backgroundOpacity - OPACITY_MIN) / (OPACITY_MAX - OPACITY_MIN), 0, 1, 0),
+    Size = UDim2.new((backgroundOpacity - 20) / 80, 0, 1, 0),
     BackgroundColor3 = Color3.fromRGB(230, 230, 230),
     BorderSizePixel = 0,
 }, sliderTrack)
 
 local function paintOpacity()
-    local span = OPACITY_MAX - OPACITY_MIN
     opacityValue.Text = tostring(backgroundOpacity)
-    sliderFill.Size = UDim2.new((backgroundOpacity - OPACITY_MIN) / span, 0, 1, 0)
-    applyBackground()
+    sliderFill.Size = UDim2.new((backgroundOpacity - 20) / 80, 0, 1, 0)
+    Theme.applyBackground()
 end
 
 local function opacityFromMouse()
@@ -2654,7 +2649,7 @@ local function opacityFromMouse()
         x -= Services.GuiService:GetGuiInset().X
     end
     local alpha = math.clamp((x - sliderTrack.AbsolutePosition.X) / width, 0, 1)
-    backgroundOpacity = clampOpacity(OPACITY_MIN + alpha * (OPACITY_MAX - OPACITY_MIN))
+    backgroundOpacity = math.clamp(math.floor(20 + alpha * 80 + 0.5), 20, 100)
     paintOpacity()
 end
 
