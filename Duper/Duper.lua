@@ -1050,93 +1050,6 @@ local function entryForMatch(match)
     return keyIndex[match.id]
 end
 
-local function labelForHit(inst)
-    local match = matchHit(inst)
-    if not match then
-        return nil
-    end
-    local entry = entryForMatch(match)
-    if entry then
-        return displayLabel(entry)
-    end
-    return prettyName(match.value) .. " (" .. (match.kind or kindFor(match.form, match.value)) .. ")"
-end
-
-local function ownerDisplayName(owner)
-    if not (owner and owner:IsA("ValueBase")) then
-        return nil
-    end
-    local value = owner.Value
-    if typeof(value) == "Instance" then
-        if value:IsA("Player") then
-            if value.DisplayName ~= "" then
-                return value.DisplayName
-            end
-            return value.Name
-        end
-        return value.Name
-    end
-    if type(value) == "number" then
-        local plr = Players:GetPlayerByUserId(value)
-        if plr and plr.DisplayName ~= "" then
-            return plr.DisplayName
-        end
-        return if plr then plr.Name else tostring(value)
-    end
-    if type(value) == "string" and value ~= "" then
-        local asNumber = tonumber(value)
-        if asNumber then
-            local plr = Players:GetPlayerByUserId(asNumber)
-            if plr then
-                if plr.DisplayName ~= "" then
-                    return plr.DisplayName
-                end
-                return plr.Name
-            end
-        end
-        return value
-    end
-    return nil
-end
-
-local function hoverLines(inst)
-    local label = labelForHit(inst)
-    local ownerName
-    local plank
-    local current = inst
-    while current and current ~= Workspace do
-        if not plank and isPlank(current) then
-            plank = current
-        end
-        if current.Name == "PlayerModels" or isPlotModel(current) then
-            break
-        end
-        local owner = current:FindFirstChild("Owner")
-        if owner and owner:IsA("ValueBase") and not ownerName then
-            ownerName = ownerDisplayName(owner)
-        end
-        current = current.Parent
-    end
-    local lines = {}
-    if label then
-        table.insert(lines, label)
-    end
-    if ownerName then
-        table.insert(lines, ownerName)
-    end
-    if plank then
-        local part = plank:FindFirstChild("WoodSection") or dragTarget(plank)
-        if part and part:IsA("BasePart") then
-            local length = math.max(part.Size.X, part.Size.Y, part.Size.Z)
-            table.insert(lines, string.format("%d studs", math.floor(length + 0.5)))
-        end
-    end
-    if #lines == 0 then
-        return nil
-    end
-    return table.concat(lines, "\n")
-end
-
 local function selectTypeFromHit(inst)
     local match = matchHit(inst)
     if not match then
@@ -1758,31 +1671,6 @@ local function buildInterface(parent, ctx)
 
     local clickBtn, clickKnob = makeSwitch(94, clickSelect)
 
-    local hoverHint = make("TextLabel", {
-        Name = "HoverHint",
-        AutomaticSize = Enum.AutomaticSize.XY,
-        Size = UDim2.fromOffset(0, 0),
-        BackgroundColor3 = Color3.fromRGB(18, 18, 18),
-        BackgroundTransparency = 0.12,
-        BorderSizePixel = 0,
-        Font = Enum.Font.SourceSans,
-        Text = "",
-        TextSize = 15,
-        TextColor3 = Color3.fromRGB(230, 230, 230),
-        TextXAlignment = Enum.TextXAlignment.Left,
-        TextYAlignment = Enum.TextYAlignment.Top,
-        Visible = false,
-        ZIndex = 20,
-    }, screenGui)
-    make("UIPadding", {
-        PaddingLeft = UDim.new(0, 6),
-        PaddingRight = UDim.new(0, 6),
-        PaddingTop = UDim.new(0, 3),
-        PaddingBottom = UDim.new(0, 3),
-    }, hoverHint)
-
-    local hoverConn
-
     local function pointerOverWindow()
         if not (dashWindow and dashWindow.Visible and dashWindow.Parent) then
             return false
@@ -1799,52 +1687,6 @@ local function buildInterface(parent, ctx)
         local size = dashWindow.AbsoluteSize
         return x >= pos.X and x <= pos.X + size.X
             and y >= pos.Y and y <= pos.Y + size.Y
-    end
-
-    local function updateHoverHint()
-        if not (hoverHint and hoverHint.Parent) then
-            return
-        end
-        local target = Player:GetMouse().Target
-        local label = if target then hoverLines(target) else nil
-        if not label or pointerOverWindow() or UserInputService:GetFocusedTextBox() then
-            hoverHint.Visible = false
-            return
-        end
-        hoverHint.Text = label
-        local mousePos = UserInputService:GetMouseLocation()
-        local gui = hoverHint:FindFirstAncestorWhichIsA("ScreenGui")
-        local x, y = mousePos.X, mousePos.Y
-        if not (gui and gui.IgnoreGuiInset) then
-            local inset = Services.GuiService:GetGuiInset()
-            x -= inset.X
-            y -= inset.Y
-        end
-        local bounds = hoverHint.TextBounds
-        local w = bounds.X + 12
-        local h = bounds.Y + 6
-        local view = screenGui.AbsoluteSize
-        local px, py = x + 16, y + 18
-        if px + w > view.X then
-            px = math.max(0, x - 16 - w)
-        end
-        if py + h > view.Y then
-            py = math.max(0, y - 12 - h)
-        end
-        hoverHint.Position = UDim2.fromOffset(px, py)
-        hoverHint.Visible = true
-    end
-
-    local function setHoverTracking(on)
-        if hoverConn then
-            hoverConn:Disconnect()
-            hoverConn = nil
-        end
-        hoverHint.Visible = false
-        if not on then
-            return
-        end
-        hoverConn = Services.RunService.RenderStepped:Connect(updateHoverHint)
     end
 
     local function onClickSelect(_, state)
@@ -1887,7 +1729,6 @@ local function buildInterface(parent, ctx)
         applyClickSelect()
         saveConfig()
     end)
-    setHoverTracking(true)
     applyClickSelect()
 
     local searchQuery = ""
@@ -2221,14 +2062,6 @@ local function buildInterface(parent, ctx)
     end)
 
     teardownUi = function()
-        if hoverConn then
-            hoverConn:Disconnect()
-            hoverConn = nil
-        end
-        if hoverHint then
-            hoverHint:Destroy()
-            hoverHint = nil
-        end
         if root and root.Parent then
             root:Destroy()
         end

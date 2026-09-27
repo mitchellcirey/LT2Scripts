@@ -12,6 +12,9 @@ local Lighting = Services.Lighting
 
 local Player = Players.LocalPlayer
 
+local CONFIG_DIR = "LT2Scripts"
+local CONFIG_FILE = CONFIG_DIR .. "/dashboard.json"
+
 local BASE = "https://raw.githubusercontent.com/mitchellcirey/LT2Scripts/main/"
 
 local SCRIPTS = {
@@ -64,6 +67,7 @@ local GUI_NAME = "JellDashboard"
 local CLICK_ACTION = "JellDashboardClickTp"
 local TOGGLE_ACTION = "JellDashboardToggle"
 local LIGHTING_STEP = "JellDashboardLighting"
+local HOVER_STEP = "JellDashboardHover"
 local MOVE_STEP = "JellDashboardShiftWalk"
 local AFK_CONN = "JellDashboardAfk"
 local JUMP_CONN = "JellDashboardJump"
@@ -104,6 +108,97 @@ local backgroundOpacity = 92
 
 local toggleKey = Enum.KeyCode.Tab --Enum.KeyCode.LeftAlt instead maybe??? idk whats better but changable in game
 local capturingKey = false
+
+local function keyFromName(name, fallback)
+    if type(name) ~= "string" then
+        return fallback
+    end
+    local ok, code = pcall(function()
+        return Enum.KeyCode[name]
+    end)
+    if ok and typeof(code) == "EnumItem" then
+        return code
+    end
+    return fallback
+end
+
+local function saveConfig()
+    if type(writefile) ~= "function" then
+        return
+    end
+    if type(makefolder) == "function" and type(isfolder) == "function" and not isfolder(CONFIG_DIR) then
+        pcall(makefolder, CONFIG_DIR)
+    end
+    local payload = {
+        ctrlClick = settings.ctrlClick,
+        disableShadows = settings.disableShadows,
+        disableFog = settings.disableFog,
+        alwaysDay = settings.alwaysDay,
+        disableShiftWalk = settings.disableShiftWalk,
+        preventAfkKick = settings.preventAfkKick,
+        infiniteJump = settings.infiniteJump,
+        noClip = settings.noClip,
+        enhancedVisuals = settings.enhancedVisuals,
+        lowerBridge = settings.lowerBridge,
+        backgroundOpacity = backgroundOpacity,
+        toggleKey = toggleKey.Name,
+    }
+    local encodedOk, encoded = pcall(function()
+        return Services.HttpService:JSONEncode(payload)
+    end)
+    if encodedOk then
+        pcall(writefile, CONFIG_FILE, encoded)
+    end
+end
+
+local function readSavedConfig()
+    if type(readfile) ~= "function" then
+        return nil
+    end
+    if type(isfile) == "function" and not isfile(CONFIG_FILE) then
+        return nil
+    end
+    local ok, raw = pcall(readfile, CONFIG_FILE)
+    if not ok or type(raw) ~= "string" or raw == "" then
+        return nil
+    end
+    local decodedOk, data = pcall(function()
+        return Services.HttpService:JSONDecode(raw)
+    end)
+    if decodedOk and type(data) == "table" then
+        return data
+    end
+    return nil
+end
+
+local function applySaved(data)
+    if type(data) ~= "table" then
+        return
+    end
+    for _, key in ipairs({
+        "ctrlClick",
+        "disableShadows",
+        "disableFog",
+        "alwaysDay",
+        "disableShiftWalk",
+        "preventAfkKick",
+        "infiniteJump",
+        "noClip",
+        "enhancedVisuals",
+        "lowerBridge",
+    }) do
+        if type(data[key]) == "boolean" then
+            settings[key] = data[key]
+        end
+    end
+    local savedOpacity = tonumber(data.backgroundOpacity)
+    if savedOpacity then
+        backgroundOpacity = math.clamp(math.floor(savedOpacity + 0.5), 0, 100)
+    end
+    toggleKey = keyFromName(data.toggleKey, toggleKey)
+end
+
+applySaved(readSavedConfig())
 local savedLighting
 local shownId
 
@@ -392,6 +487,9 @@ pcall(function()
     RunService:UnbindFromRenderStep(LIGHTING_STEP)
 end)
 pcall(function()
+    RunService:UnbindFromRenderStep(HOVER_STEP)
+end)
+pcall(function()
     RunService:UnbindFromRenderStep("LT2DuperLighting")
 end)
 ContextActionService:UnbindAction(CLICK_ACTION)
@@ -400,6 +498,9 @@ ContextActionService:UnbindAction("LT2DuperClickTp")
 captureLighting()
 applyLighting()
 bindLighting()
+if settings.lowerBridge then
+    lowerBridge()
+end
 
 local uiParent = getUiParent()
 local screenGui = make("ScreenGui", {
@@ -873,6 +974,315 @@ local function pointerOverWindow()
     return x >= pos.X and x <= pos.X + size.X
         and y >= pos.Y and y <= pos.Y + size.Y
 end
+
+local PLANK_STAND_LENGTH = 5
+local GENERIC_NAME = {
+    model = true,
+    tool = true,
+    part = true,
+    mesh = true,
+    meshpart = true,
+    handle = true,
+    folder = true,
+    woodsection = true,
+    main = true,
+    item = true,
+    looseitem = true,
+    union = true,
+}
+
+local function prettyName(raw)
+    return (tostring(raw):gsub("(%l)(%u)", "%1 %2"):gsub("_", " "))
+end
+
+local function dragTarget(model)
+    if model:IsA("BasePart") then
+        return model
+    end
+    return model:FindFirstChild("Main")
+        or model:FindFirstChild("WoodSection")
+        or model:FindFirstChildWhichIsA("BasePart")
+        or model:FindFirstChildWhichIsA("BasePart", true)
+end
+
+local function isPlank(model)
+    return model and model.Name == "Plank"
+end
+
+local function plankLength(model)
+    local part = model and (model:FindFirstChild("WoodSection") or dragTarget(model))
+    if not (part and part:IsA("BasePart")) then
+        return 0
+    end
+    return math.max(part.Size.X, part.Size.Y, part.Size.Z)
+end
+
+local function valueText(inst)
+    if not (inst and inst:IsA("ValueBase")) then
+        return nil
+    end
+    local value = inst.Value
+    if value == nil then
+        return nil
+    end
+    local text = tostring(value)
+    if text == "" then
+        return nil
+    end
+    return text
+end
+
+local function usableName(name)
+    return type(name) == "string" and name ~= "" and not GENERIC_NAME[string.lower(name)]
+end
+
+local function findValue(root, name)
+    return root:FindFirstChild(name) or root:FindFirstChild(name, true)
+end
+
+local function objectMatch(model)
+    local treeText = valueText(findValue(model, "TreeClass"))
+    if treeText then
+        return "log", treeText
+    end
+    local boxText = valueText(findValue(model, "PurchasedBoxItemName"))
+    if boxText then
+        return "boxed", boxText
+    end
+    for _, key in ipairs({ "ToolName", "ItemName", "PurchasedItemName" }) do
+        local text = valueText(findValue(model, key))
+        if text then
+            return "opened", text
+        end
+    end
+    if usableName(model.Name) then
+        return "opened", model.Name
+    end
+    for _, child in ipairs(model:GetDescendants()) do
+        if child:IsA("StringValue") and child.Name ~= "Owner" then
+            local text = valueText(child)
+            if text and usableName(text) and #text < 64 then
+                return "opened", text
+            end
+        end
+    end
+    for _, child in ipairs(model:GetChildren()) do
+        if usableName(child.Name) and not child:FindFirstChild("Owner") then
+            return "opened", child.Name
+        end
+    end
+    if model.Name ~= "" then
+        return "opened", model.Name
+    end
+    return nil
+end
+
+local function ownsModel(model)
+    if not model or model == Player or model == Player.Character then
+        return false
+    end
+    local owner = model:FindFirstChild("Owner")
+    if not (owner and owner:IsA("ValueBase")) then
+        return false
+    end
+    local value = owner.Value
+    if value == Player or value == Player.Name or value == Player.UserId or value == tostring(Player.UserId) then
+        return true
+    end
+    if typeof(value) == "Instance" then
+        return value:IsA("Player") and value.UserId == Player.UserId
+    end
+    if type(value) == "string" then
+        local lower = string.lower(value)
+        return lower == string.lower(Player.Name) or lower == string.lower(Player.DisplayName)
+    end
+    if type(value) == "number" then
+        return value == Player.UserId
+    end
+    return false
+end
+
+local function isPlotModel(inst)
+    local properties = Services.Workspace:FindFirstChild("Properties")
+    return properties ~= nil and inst.Parent == properties
+end
+
+local function ownedItemFromInstance(inst)
+    local current = inst
+    while current and current ~= Services.Workspace do
+        if current.Parent and current.Parent.Name == "PlayerModels" then
+            if ownsModel(current) and dragTarget(current) then
+                return current
+            end
+            return nil
+        end
+        current = current.Parent
+    end
+    return nil
+end
+
+local function kindFor(form, value)
+    local name = string.lower(tostring(value))
+    if form == "log" then
+        return "Log"
+    end
+    if string.find(name, "gift", 1, true) or string.find(name, "present", 1, true) or string.find(name, "cgift", 1, true) then
+        return if form == "boxed" then "Boxed Present" else "Present"
+    end
+    if string.find(name, "paint", 1, true) or string.find(name, "portrait", 1, true) then
+        return if form == "boxed" then "Boxed Painting" else "Painting"
+    end
+    if string.find(name, "axe", 1, true) or string.find(name, "hatchet", 1, true) then
+        return if form == "boxed" then "Boxed Axe" else "Axe"
+    end
+    return if form == "boxed" then "Boxed" else "Opened"
+end
+
+local function itemLabel(model)
+    local form, value = objectMatch(model)
+    if not form or value == nil or tostring(value) == "" then
+        return nil
+    end
+    local kind = kindFor(form, value)
+    if isPlank(model) and plankLength(model) <= PLANK_STAND_LENGTH then
+        kind = "Short"
+    end
+    return prettyName(value) .. " (" .. kind .. ")"
+end
+
+local function ownerDisplayName(owner)
+    if not (owner and owner:IsA("ValueBase")) then
+        return nil
+    end
+    local value = owner.Value
+    if typeof(value) == "Instance" then
+        if value:IsA("Player") then
+            if value.DisplayName ~= "" then
+                return value.DisplayName
+            end
+            return value.Name
+        end
+        return value.Name
+    end
+    if type(value) == "number" then
+        local plr = Players:GetPlayerByUserId(value)
+        if plr and plr.DisplayName ~= "" then
+            return plr.DisplayName
+        end
+        return if plr then plr.Name else tostring(value)
+    end
+    if type(value) == "string" and value ~= "" then
+        local asNumber = tonumber(value)
+        if asNumber then
+            local plr = Players:GetPlayerByUserId(asNumber)
+            if plr then
+                if plr.DisplayName ~= "" then
+                    return plr.DisplayName
+                end
+                return plr.Name
+            end
+        end
+        return value
+    end
+    return nil
+end
+
+local function hoverLines(inst)
+    local owned = ownedItemFromInstance(inst)
+    local label = if owned then itemLabel(owned) else nil
+    local ownerName
+    local plank
+    local current = inst
+    while current and current ~= Services.Workspace do
+        if not plank and isPlank(current) then
+            plank = current
+        end
+        if current.Name == "PlayerModels" or isPlotModel(current) then
+            break
+        end
+        local owner = current:FindFirstChild("Owner")
+        if owner and owner:IsA("ValueBase") and not ownerName then
+            ownerName = ownerDisplayName(owner)
+        end
+        current = current.Parent
+    end
+    local lines = {}
+    if label then
+        table.insert(lines, label)
+    end
+    if ownerName then
+        table.insert(lines, ownerName)
+    end
+    if plank then
+        local length = plankLength(plank)
+        if length > 0 then
+            table.insert(lines, string.format("%d studs", math.floor(length + 0.5)))
+        end
+    end
+    if #lines == 0 then
+        return nil
+    end
+    return table.concat(lines, "\n")
+end
+
+local hoverHint = make("TextLabel", {
+    Name = "HoverHint",
+    AutomaticSize = Enum.AutomaticSize.XY,
+    Size = UDim2.fromOffset(0, 0),
+    BackgroundColor3 = Color3.fromRGB(18, 18, 18),
+    BackgroundTransparency = 0.4,
+    BorderSizePixel = 0,
+    Font = Enum.Font.SourceSans,
+    Text = "",
+    TextSize = 15,
+    TextColor3 = Color3.fromRGB(230, 230, 230),
+    TextXAlignment = Enum.TextXAlignment.Left,
+    TextYAlignment = Enum.TextYAlignment.Top,
+    Visible = false,
+    ZIndex = 20,
+}, screenGui)
+make("UIPadding", {
+    PaddingLeft = UDim.new(0, 6),
+    PaddingRight = UDim.new(0, 6),
+    PaddingTop = UDim.new(0, 3),
+    PaddingBottom = UDim.new(0, 3),
+}, hoverHint)
+
+local function updateHoverHint()
+    if not (hoverHint and hoverHint.Parent) then
+        return
+    end
+    local target = Player:GetMouse().Target
+    local label = if target then hoverLines(target) else nil
+    if not label or pointerOverWindow() or UserInputService:GetFocusedTextBox() then
+        hoverHint.Visible = false
+        return
+    end
+    hoverHint.Text = label
+    local mousePos = UserInputService:GetMouseLocation()
+    local gui = hoverHint:FindFirstAncestorWhichIsA("ScreenGui")
+    local x, y = mousePos.X, mousePos.Y
+    if not (gui and gui.IgnoreGuiInset) then
+        local inset = Services.GuiService:GetGuiInset()
+        x -= inset.X
+        y -= inset.Y
+    end
+    local bounds = hoverHint.TextBounds
+    local w = bounds.X + 12
+    local h = bounds.Y + 6
+    local view = screenGui.AbsoluteSize
+    local px, py = x + 16, y + 18
+    if px + w > view.X then
+        px = math.max(0, x - 16 - w)
+    end
+    if py + h > view.Y then
+        py = math.max(0, y - 12 - h)
+    end
+    hoverHint.Position = UDim2.fromOffset(px, py)
+    hoverHint.Visible = true
+end
+
+RunService:BindToRenderStep(HOVER_STEP, Enum.RenderPriority.Last.Value, updateHoverHint)
 
 local function onClickTeleport(_, state)
     if state ~= Enum.UserInputState.Begin or not settings.ctrlClick then
@@ -1434,6 +1844,7 @@ local function toggleRow(labelText, key, order)
     track.MouseButton1Click:Connect(function()
         settings[key] = not settings[key]
         paintSwitch(track, knob, settings[key])
+        saveConfig()
         if key == "ctrlClick" then
             bindCtrl()
             return
@@ -1611,6 +2022,7 @@ UserInputService.InputEnded:Connect(function(input)
     end
     slidingOpacity = false
     sliderTrack.BackgroundColor3 = sliderHover and HOVER_BG or BUTTON_BG
+    saveConfig()
 end)
 
 local keyHover = false
@@ -1713,6 +2125,9 @@ local function shutdown()
         RunService:UnbindFromRenderStep(MOVE_STEP)
     end)
     pcall(function()
+        RunService:UnbindFromRenderStep(HOVER_STEP)
+    end)
+    pcall(function()
         RunService:UnbindFromRenderStep("JellClearSawmillRing")
     end)
     _G.JellSawmillCircleOk = false
@@ -1737,6 +2152,7 @@ UserInputService.InputBegan:Connect(function(input)
         else
             toggleKey = input.KeyCode
             capturingKey = false
+            saveConfig()
         end
         bindToggleKey()
         paintKeyButton()

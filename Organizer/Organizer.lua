@@ -163,6 +163,9 @@ local function saveConfig()
         ownershipTimeout = ownershipTimeout,
         rotateX = rotateXKey.Name,
         rotateY = rotateYKey.Name,
+        clickSelect = clickSelect,
+        groupSelect = groupSelect,
+        lasso = lasso,
     }
     local encodedOk, encoded = pcall(function()
         return Services.HttpService:JSONEncode(payload)
@@ -227,6 +230,15 @@ local function applySaved(data)
     end
     rotateXKey = keyFromName(data.rotateX, rotateXKey)
     rotateYKey = keyFromName(data.rotateY, rotateYKey)
+    if type(data.clickSelect) == "boolean" then
+        clickSelect = data.clickSelect
+    end
+    if type(data.groupSelect) == "boolean" then
+        groupSelect = data.groupSelect
+    end
+    if type(data.lasso) == "boolean" then
+        lasso = data.lasso
+    end
 end
 
 applySaved(readSavedConfig())
@@ -1429,6 +1441,7 @@ local function setMode(mode, on)
         end
     end
     paint()
+    saveConfig()
 end
 
 local function hookSlider(slider, read, apply, lock)

@@ -12,6 +12,9 @@ local RunService = Services.RunService
 
 local Player = Players.LocalPlayer
 
+local CONFIG_DIR = "LT2Scripts"
+local CONFIG_FILE = CONFIG_DIR .. "/shop.json"
+
 local TEXT = Color3.fromRGB(230, 230, 230)
 local MUTED = Color3.fromRGB(160, 160, 160)
 local DARK = Color3.fromRGB(18, 18, 18)
@@ -256,6 +259,68 @@ local rukiryBtn = nil
 local poeBtn = nil
 local quantityValue = nil
 local quantityFill = nil
+
+local function saveConfig()
+    if type(writefile) ~= "function" then
+        return
+    end
+    if type(makefolder) == "function" and type(isfolder) == "function" and not isfolder(CONFIG_DIR) then
+        pcall(makefolder, CONFIG_DIR)
+    end
+    local payload = {
+        selectedId = selectedId,
+        quantity = quantity,
+        quickPurchase = quickPurchase,
+        allowNuclear = allowNuclear,
+    }
+    local encodedOk, encoded = pcall(function()
+        return Services.HttpService:JSONEncode(payload)
+    end)
+    if encodedOk then
+        pcall(writefile, CONFIG_FILE, encoded)
+    end
+end
+
+local function readSavedConfig()
+    if type(readfile) ~= "function" then
+        return nil
+    end
+    if type(isfile) == "function" and not isfile(CONFIG_FILE) then
+        return nil
+    end
+    local ok, raw = pcall(readfile, CONFIG_FILE)
+    if not ok or type(raw) ~= "string" or raw == "" then
+        return nil
+    end
+    local decodedOk, data = pcall(function()
+        return Services.HttpService:JSONDecode(raw)
+    end)
+    if decodedOk and type(data) == "table" then
+        return data
+    end
+    return nil
+end
+
+local function applySaved(data)
+    if type(data) ~= "table" then
+        return
+    end
+    if type(data.selectedId) == "string" and data.selectedId ~= "" then
+        selectedId = data.selectedId
+    end
+    local savedQuantity = tonumber(data.quantity)
+    if savedQuantity then
+        quantity = math.clamp(math.floor(savedQuantity + 0.5), 1, 100)
+    end
+    if type(data.quickPurchase) == "boolean" then
+        quickPurchase = data.quickPurchase
+    end
+    if type(data.allowNuclear) == "boolean" then
+        allowNuclear = data.allowNuclear
+    end
+end
+
+applySaved(readSavedConfig())
 
 local function make(className, props, parent)
     local inst = Instance.new(className)
@@ -1799,6 +1864,7 @@ local function addSlot(grid, item, order)
         selectedId = item.BoxItemName
         paintSlots()
         updatePurchase()
+        saveConfig()
     end)
 end
 
@@ -2015,9 +2081,11 @@ local function build(parent)
         end
     end)
     connect(UserInputService.InputEnded, function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            sliding = false
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1 or not sliding then
+            return
         end
+        sliding = false
+        saveConfig()
     end)
 
     purchaseBtn = actionRow(list, "Purchase", "Buy", 5)
@@ -2066,11 +2134,13 @@ local function build(parent)
         return quickPurchase
     end, function(state)
         quickPurchase = state
+        saveConfig()
     end)
     switchRow(list, "Force respawn on stuck NPC", 12, function()
         return allowNuclear
     end, function(state)
         allowNuclear = state
+        saveConfig()
     end)
 
     updatePurchase()

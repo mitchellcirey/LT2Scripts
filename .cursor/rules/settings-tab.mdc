@@ -1,13 +1,13 @@
 ---
-description: Dashboard toggles stay session-only. Script settings stay on that script's page.
+description: Dashboard and script settings are saved and restored on launch.
 alwaysApply: true
 ---
 
 # Settings
 
-Ctrl Click, Disable shadows, Disable fog, Always Day, Disable shift walk, and Prevent AFK kick live in `Dashboard/Dashboard.lua`. They start on. Infinite jump, No clip, Enhanced visuals, and Lower bridge live there too and start off. Background opacity lives there too, starts at 92, and is not saved. Do not save any of them.
+Dashboard settings live in `Dashboard/Dashboard.lua` and in `saveConfig`, written to `LT2Scripts/dashboard.json`. Until that file exists, Ctrl Click, Disable fog, Disable shift walk, and Prevent AFK kick start on. Disable shadows, Always Day, Infinite jump, No clip, Enhanced visuals, and Lower bridge start off. Background opacity starts at 92. The toggle key starts as Tab.
 
-Script-specific settings stay on that script's settings page and in its `saveConfig`.
+Script-specific settings stay on that script's page and in its `saveConfig`.
 
 Keep the UI to a label and a control. No hint text.
 
