@@ -43,6 +43,8 @@ local TOGGLE_ACTION = "JellDashboardToggle"
 local LIGHTING_STEP = "JellDashboardLighting"
 local MOVE_STEP = "JellDashboardShiftWalk"
 local AFK_CONN = "JellDashboardAfk"
+local JUMP_CONN = "JellDashboardJump"
+local NOCLIP_CONN = "JellDashboardNoclip"
 
 local RED = Color3.fromRGB(210, 70, 70)
 local GREEN = Color3.fromRGB(70, 190, 105)
@@ -64,6 +66,8 @@ local settings = {
     alwaysDay = false,
     disableShiftWalk = true,
     preventAfkKick = true,
+    infiniteJump = false,
+    noClip = false,
 }
 
 local toggleKey = Enum.KeyCode.Tab
@@ -546,18 +550,19 @@ end
 
 bindShiftWalk()
 
-local function unbindAfk()
-    local conn = shared[AFK_CONN]
-    if conn then
-        pcall(function()
-            conn:Disconnect()
-        end)
-        shared[AFK_CONN] = nil
+local function disconnectShared(key)
+    local conn = shared[key]
+    if not conn then
+        return
     end
+    pcall(function()
+        conn:Disconnect()
+    end)
+    shared[key] = nil
 end
 
 local function bindAfk()
-    unbindAfk()
+    disconnectShared(AFK_CONN)
     if not settings.preventAfkKick then
         return
     end
@@ -573,7 +578,47 @@ local function bindAfk()
     end)
 end
 
+local function bindJump()
+    disconnectShared(JUMP_CONN)
+    if not settings.infiniteJump then
+        return
+    end
+    shared[JUMP_CONN] = UserInputService.JumpRequest:Connect(function()
+        if not settings.infiniteJump then
+            return
+        end
+        local character = Player.Character
+        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+        end
+    end)
+end
+
+local function bindNoclip()
+    disconnectShared(NOCLIP_CONN)
+    if not settings.noClip then
+        return
+    end
+    shared[NOCLIP_CONN] = RunService.Stepped:Connect(function()
+        if not settings.noClip then
+            return
+        end
+        local character = Player.Character
+        if not character then
+            return
+        end
+        for _, part in ipairs(character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
+            end
+        end
+    end)
+end
+
 bindAfk()
+bindJump()
+bindNoclip()
 
 local ctx = {
     screenGui = screenGui,
@@ -851,6 +896,14 @@ local function toggleRow(labelText, key, y)
             bindAfk()
             return
         end
+        if key == "infiniteJump" then
+            bindJump()
+            return
+        end
+        if key == "noClip" then
+            bindNoclip()
+            return
+        end
         if key == "alwaysDay" and not settings.alwaysDay then
             restoreAlwaysDay()
         elseif key == "disableShadows" and not settings.disableShadows then
@@ -869,10 +922,12 @@ toggleRow("Disable fog", "disableFog", 64)
 toggleRow("Always Day", "alwaysDay", 96)
 toggleRow("Disable shift walk", "disableShiftWalk", 128)
 toggleRow("Prevent AFK kick", "preventAfkKick", 160)
+toggleRow("Infinite jump", "infiniteJump", 192)
+toggleRow("No clip", "noClip", 224)
 
 make("TextLabel", {
     Size = UDim2.new(1, -96, 0, 22),
-    Position = UDim2.fromOffset(0, 192),
+    Position = UDim2.fromOffset(0, 256),
     BackgroundTransparency = 1,
     Font = Enum.Font.SourceSans,
     Text = "Toggle key",
@@ -883,7 +938,7 @@ make("TextLabel", {
 
 local keyBtn = make("TextButton", {
     Size = UDim2.fromOffset(88, 22),
-    Position = UDim2.new(1, -88, 0, 192),
+    Position = UDim2.new(1, -88, 0, 256),
     BackgroundColor3 = Color3.fromRGB(58, 58, 58),
     BorderSizePixel = 0,
     Font = Enum.Font.SourceSans,
@@ -976,7 +1031,9 @@ local function shutdown()
         RunService:UnbindFromRenderStep(MOVE_STEP)
     end)
     restoreLighting()
-    unbindAfk()
+    disconnectShared(AFK_CONN)
+    disconnectShared(JUMP_CONN)
+    disconnectShared(NOCLIP_CONN)
     screenGui:Destroy()
 end
 

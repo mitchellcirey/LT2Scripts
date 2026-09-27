@@ -277,6 +277,7 @@ local cutterMarks = {}
 local cutterStatus
 local cutterTimes = 0
 local cutterTimeTotal = 0
+local markFolder
 
 local hoverConn
 local hoverBillboard
@@ -1237,7 +1238,27 @@ function F.chopOwnedLogs(token)
     chopLogs = false
 end
 
-function F.makeMark(name, color)
+function F.marksFolder()
+    if markFolder and markFolder.Parent then
+        return markFolder
+    end
+    local parent = Player:FindFirstChildOfClass("PlayerGui")
+    if not parent then
+        pcall(function()
+            parent = Services.CoreGui
+        end)
+    end
+    if not parent then
+        return nil
+    end
+    local folder = Instance.new("Folder")
+    folder.Name = "TreeCutterMarks"
+    folder.Parent = parent
+    markFolder = folder
+    return folder
+end
+
+function F.makeMark(name, color, adornee)
     local mark = Instance.new("Highlight")
     mark.Name = name
     mark.FillColor = color
@@ -1245,8 +1266,29 @@ function F.makeMark(name, color)
     mark.FillTransparency = 0.35
     mark.OutlineTransparency = 0
     mark.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-    mark.Parent = Workspace
+    mark.Enabled = false
+    if adornee then
+        mark.Adornee = adornee
+        mark.Enabled = true
+    end
+    local folder = F.marksFolder()
+    if folder then
+        mark.Parent = folder
+    end
     return mark
+end
+
+function F.bindMark(mark, adornee)
+    if not mark then
+        return
+    end
+    if adornee then
+        mark.Adornee = adornee
+        mark.Enabled = true
+        return
+    end
+    mark.Enabled = false
+    mark.Adornee = nil
 end
 
 function F.clearSellOutline()
@@ -1263,8 +1305,7 @@ function F.showSellOutline(model)
     end
     F.clearSellOutline()
     sellHover = model
-    sellOutline = F.makeMark("TreeCutterSell", SELL_COLOR)
-    sellOutline.Adornee = model
+    sellOutline = F.makeMark("TreeCutterSell", SELL_COLOR, model)
 end
 
 function F.ownedPlank(part)
@@ -1455,8 +1496,16 @@ function F.ensureCutterOutline()
 end
 
 function F.showCutterOutline(model)
+    if not model then
+        F.hideCutterOutline()
+        return
+    end
     F.ensureCutterOutline()
-    cutterOutline.Adornee = model
+    F.bindMark(cutterOutline, model)
+end
+
+function F.hideCutterOutline()
+    F.bindMark(cutterOutline, nil)
 end
 
 function F.rebuildPlanes(section)
@@ -1493,8 +1542,7 @@ function F.markQueued(plank)
     if not plank or cutterMarks[plank] then
         return
     end
-    local box = F.makeMark("TreeCutterQueue", QUEUE_COLOR)
-    box.Adornee = plank
+    local box = F.makeMark("TreeCutterQueue", QUEUE_COLOR, plank)
     cutterMarks[plank] = box
 end
 
@@ -1652,9 +1700,7 @@ function F.cutPlank(plank, gen)
     if not tool or not section then
         cutterCutting = false
         cutterTarget = nil
-        if cutterOutline then
-            cutterOutline.Adornee = nil
-        end
+        F.hideCutterOutline()
         F.clearCutPlanes()
         return
     end
@@ -1720,9 +1766,7 @@ function F.cutPlank(plank, gen)
             task.spawn(F.cutPlank, nextPlank, gen)
         else
             cutterTarget = nil
-            if cutterOutline then
-                cutterOutline.Adornee = nil
-            end
+            F.hideCutterOutline()
         end
     end
 end
@@ -1766,9 +1810,7 @@ function F.enableCutter()
         local keep = cutterTarget and target and target:IsDescendantOf(cutterTarget)
         if not keep and cutterTarget then
             cutterTarget = nil
-            if cutterOutline then
-                cutterOutline.Adornee = nil
-            end
+            F.hideCutterOutline()
             F.clearCutPlanes()
             lastSection = nil
         end
@@ -2663,6 +2705,10 @@ function api.stop()
     F.disableSell()
     F.disableCutter()
     F.disableHover()
+    if markFolder then
+        markFolder:Destroy()
+        markFolder = nil
+    end
     F.closeMenu()
     F.setStatus("Off")
     F.paintAll()
