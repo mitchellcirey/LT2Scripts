@@ -261,8 +261,11 @@ local poeBtn = nil
 local quantityValue = nil
 local quantityFill = nil
 local progressCard = nil
+local progressWindow = nil
 local progressLabel = nil
+local progressTrack = nil
 local progressFill = nil
+local progressLift = nil
 local progressSlide = nil
 local progressGrow = nil
 local buyProgressToken = 0
@@ -1071,6 +1074,8 @@ local function nuclearReset()
     task.wait(0.5)
 end
 
+local PROGRESS_H = 32
+
 local function progressHost(anchor)
     local current = anchor
     while current do
@@ -1082,23 +1087,60 @@ local function progressHost(anchor)
     return nil
 end
 
+local function syncProgressGlass()
+    local plate = progressWindow and progressWindow:FindFirstChild("HeaderPlate")
+    local transparency = 0
+    if plate and plate:IsA("GuiObject") then
+        transparency = plate.BackgroundTransparency
+    end
+    if progressCard then
+        progressCard.BackgroundTransparency = transparency
+    end
+    if progressTrack then
+        progressTrack.BackgroundTransparency = transparency
+    end
+    if progressFill then
+        progressFill.BackgroundTransparency = transparency
+    end
+end
+
+local function placeBuyProgress()
+    if not (progressCard and progressWindow and progressWindow.Parent and progressLift) then
+        return
+    end
+    local origin = progressWindow.Position
+    progressCard.Position = UDim2.new(
+        origin.X.Scale,
+        origin.X.Offset + progressWindow.AbsoluteSize.X - 10,
+        origin.Y.Scale,
+        origin.Y.Offset + progressLift.Value
+    )
+end
+
 local function ensureBuyProgress(anchor)
     if progressCard and progressCard.Parent then
         return progressCard
     end
     local host = progressHost(anchor)
-    if not host then
+    local gui = host and host:FindFirstAncestorWhichIsA("ScreenGui")
+    if not (host and gui) then
         return nil
     end
+    local stale = host:FindFirstChild("ShopProgress") or gui:FindFirstChild("ShopProgress")
+    if stale then
+        stale:Destroy()
+    end
+    progressWindow = host
+    progressLift = Instance.new("NumberValue")
+    progressLift.Value = PROGRESS_H
     progressCard = make("Frame", {
         Name = "ShopProgress",
-        AnchorPoint = Vector2.new(1, 0),
-        Size = UDim2.fromOffset(200, 32),
-        Position = UDim2.new(1, -10, 0, -36),
+        AnchorPoint = Vector2.new(1, 1),
+        Size = UDim2.fromOffset(200, PROGRESS_H),
         BackgroundColor3 = Color3.fromRGB(32, 32, 32),
         BorderSizePixel = 0,
-        ZIndex = 20,
-    }, host)
+        ZIndex = 0,
+    })
     make("UICorner", { CornerRadius = UDim.new(0, 4) }, progressCard)
     progressLabel = make("TextLabel", {
         Size = UDim2.new(1, -12, 0, 14),
@@ -1110,38 +1152,48 @@ local function ensureBuyProgress(anchor)
         TextColor3 = TEXT,
         TextXAlignment = Enum.TextXAlignment.Left,
         TextTruncate = Enum.TextTruncate.AtEnd,
-        ZIndex = 21,
+        ZIndex = 1,
     }, progressCard)
-    local track = make("Frame", {
+    progressTrack = make("Frame", {
         Size = UDim2.new(1, -12, 0, 6),
         Position = UDim2.fromOffset(6, 20),
         BackgroundColor3 = FIELD,
         BorderSizePixel = 0,
-        ZIndex = 21,
+        ZIndex = 1,
     }, progressCard)
-    make("UICorner", { CornerRadius = UDim.new(1, 0) }, track)
+    make("UICorner", { CornerRadius = UDim.new(1, 0) }, progressTrack)
     progressFill = make("Frame", {
         Size = UDim2.new(0, 0, 1, 0),
         BackgroundColor3 = GREEN,
         BorderSizePixel = 0,
-        ZIndex = 22,
-    }, track)
+        ZIndex = 2,
+    }, progressTrack)
     make("UICorner", { CornerRadius = UDim.new(1, 0) }, progressFill)
+    progressLift.Parent = progressCard
+    placeBuyProgress()
+    syncProgressGlass()
+    progressCard.Parent = gui
+    progressLift.Changed:Connect(placeBuyProgress)
+    host:GetPropertyChangedSignal("Position"):Connect(placeBuyProgress)
+    host:GetPropertyChangedSignal("AbsoluteSize"):Connect(placeBuyProgress)
+    local plate = host:FindFirstChild("HeaderPlate")
+    if plate then
+        plate:GetPropertyChangedSignal("BackgroundTransparency"):Connect(syncProgressGlass)
+    end
     return progressCard
 end
 
 local function slideBuyProgress(shown)
-    if not (progressCard and progressCard.Parent) then
+    if not (progressCard and progressCard.Parent and progressLift) then
         return
     end
     if progressSlide then
         progressSlide:Cancel()
     end
-    local y = shown and 34 or -36
     progressSlide = Services.TweenService:Create(
-        progressCard,
+        progressLift,
         TweenInfo.new(0.3, Enum.EasingStyle.Quad, shown and Enum.EasingDirection.Out or Enum.EasingDirection.In),
-        { Position = UDim2.new(1, -10, 0, y) }
+        { Value = shown and 0 or PROGRESS_H }
     )
     progressSlide:Play()
 end
