@@ -21,11 +21,15 @@ local FIELD = Color3.fromRGB(58, 58, 58)
 local LABEL = Color3.fromRGB(210, 210, 210)
 local GREEN = Color3.fromRGB(70, 190, 105)
 local STROKE = Color3.fromRGB(70, 70, 70)
+local MENU = Color3.fromRGB(32, 32, 32)
+local HOVER = Color3.fromRGB(120, 120, 120)
 local OUTLINE = Color3.fromRGB(74, 120, 255)
 
 local ROW_H = 22
 local BTN_W = 88
+local MENU_MAX = 176
 local OUTLINE_NAME = "JellBPFillaOutlines"
+local LASSO_NAME = "JellBPFillaLasso"
 
 local PROXIMITY = 10
 local PRE_FIRE = 0.05
@@ -36,7 +40,11 @@ local OWNERSHIP_TIMEOUT = 1
 local mounted = false
 local started = false
 local pageOpen = false
-local picking = false
+local clickSelect = false
+local groupSelect = false
+local lasso = false
+local lassoDragging = false
+local lassoStart = nil
 local clickFill = false
 local filling = false
 local busy = false
@@ -47,6 +55,7 @@ local homeCFrame = nil
 local selectedClass = nil
 local allPlanks = {}
 local filteredPlanks = {}
+local chosen = {}
 local filterMin = 1
 local filterMax = 1.5
 local plankIndex = 1
@@ -54,15 +63,21 @@ local plankIndex = 1
 local connections = {}
 local outlineConns = {}
 local outlineFolder = nil
-local worldConn = nil
+local worldConns = {}
+local lassoGui = nil
+local lassoFrame = nil
 local dashWindow = nil
 local root = nil
 local range = nil
-local selectBtn = nil
 local fillBtn = nil
 local countLabel = nil
+local typeButton = nil
+local typeLabel = nil
+local menu = nil
+local menuAnchor = nil
 local clickTrack = nil
 local clickKnob = nil
+local modeTracks = {}
 
 local function make(className, props, parent)
     local inst = Instance.new(className)
@@ -262,13 +277,37 @@ end
 
 local function paintCount()
     if countLabel and countLabel.Parent then
-        countLabel.Text = tostring(#filteredPlanks)
+        countLabel.Text = tostring(#chosen)
     end
 end
 
-local function paintSelect()
-    if selectBtn and selectBtn.Parent then
-        selectBtn.Text = picking and "Picking" or "Start"
+local function paintType()
+    if not (typeLabel and typeLabel.Parent) then
+        return
+    end
+    if selectedClass and selectedClass ~= "" then
+        typeLabel.Text = selectedClass
+        typeLabel.TextColor3 = TEXT
+    else
+        typeLabel.Text = "Select"
+        typeLabel.TextColor3 = MUTED
+    end
+end
+
+local function paintModes()
+    local flags = {
+        click = clickSelect,
+        group = groupSelect,
+        lasso = lasso,
+    }
+    for mode, widgets in pairs(modeTracks) do
+        local on = flags[mode] == true
+        if widgets.knob and widgets.knob.Parent then
+            widgets.knob.Position = UDim2.fromOffset(on and 16 or 2, 2)
+        end
+        if widgets.track and widgets.track.Parent then
+            widgets.track.BackgroundColor3 = on and GREEN or FIELD
+        end
     end
 end
 
@@ -304,23 +343,23 @@ local function clearOutlines()
     end
 end
 
+local function dropFrom(list, part)
+    for index, entry in ipairs(list) do
+        if entry.part == part then
+            table.remove(list, index)
+            return
+        end
+    end
+end
+
 local function dropPlank(part)
-    for index, entry in ipairs(filteredPlanks) do
-        if entry.part == part then
-            table.remove(filteredPlanks, index)
-            break
-        end
-    end
-    for index, entry in ipairs(allPlanks) do
-        if entry.part == part then
-            table.remove(allPlanks, index)
-            break
-        end
-    end
-    if #filteredPlanks == 0 then
+    dropFrom(filteredPlanks, part)
+    dropFrom(allPlanks, part)
+    dropFrom(chosen, part)
+    if #chosen == 0 then
         plankIndex = 1
     else
-        plankIndex = math.clamp(plankIndex, 1, #filteredPlanks)
+        plankIndex = math.clamp(plankIndex, 1, #chosen)
     end
     paintCount()
 end
@@ -334,7 +373,7 @@ local function drawOutlines()
     outlineFolder = make("Folder", {
         Name = OUTLINE_NAME,
     })
-    for _, entry in ipairs(filteredPlanks) do
+    for _, entry in ipairs(chosen) do
         if entry.part and entry.part.Parent then
             local box = make("SelectionBox", {
                 Adornee = entry.part,
@@ -356,15 +395,74 @@ local function drawOutlines()
     paintCount()
 end
 
-local function applyFilter()
+local function refilter()
+    local allowed = {}
     filteredPlanks = {}
     for _, entry in ipairs(allPlanks) do
         if entry.sizeY >= filterMin and entry.sizeY <= filterMax then
             table.insert(filteredPlanks, entry)
+            allowed[entry.part] = entry
         end
     end
-    plankIndex = 1
+    local keep = {}
+    for _, entry in ipairs(chosen) do
+        local fresh = entry.part and allowed[entry.part]
+        if fresh then
+            table.insert(keep, fresh)
+        end
+    end
+    chosen = keep
+    if #chosen == 0 then
+        plankIndex = 1
+    else
+        plankIndex = math.clamp(plankIndex, 1, #chosen)
+    end
     drawOutlines()
+end
+
+local function plankClasses()
+    local seen = {}
+    local names = {}
+    local folder = playerModels()
+    if not folder then
+        return names
+    end
+    for _, model in ipairs(folder:GetChildren()) do
+        if model.Name == "Plank" and model:IsA("Model") and isOwned(model) then
+            local treeClass = model:FindFirstChild("TreeClass")
+            if treeClass and treeClass:IsA("StringValue") and treeClass.Value ~= "" and not seen[treeClass.Value] then
+                seen[treeClass.Value] = true
+                table.insert(names, treeClass.Value)
+            end
+        end
+    end
+    table.sort(names)
+    return names
+end
+
+local function chooseClass(className)
+    selectedClass = className
+    allPlanks = scanPlanks(className)
+    chosen = {}
+    local yMin, yMax = 0, 0
+    if #allPlanks > 0 then
+        yMin, yMax = math.huge, -math.huge
+        for _, entry in ipairs(allPlanks) do
+            yMin = math.min(yMin, entry.sizeY)
+            yMax = math.max(yMax, entry.sizeY)
+        end
+        filterMin = yMin
+        filterMax = yMax
+    else
+        filterMin = 0
+        filterMax = 0
+    end
+    if range then
+        range.setBounds(0, math.max(10, yMax))
+        range.set(filterMin, filterMax)
+    end
+    refilter()
+    paintType()
 end
 
 local function dynamicDelay()
@@ -533,51 +631,163 @@ local function teleportObject(part, goalCF, returnHome)
     return true
 end
 
-local function stopPicking()
-    picking = false
-    paintSelect()
+local function toggleChosen(entry)
+    for index, item in ipairs(chosen) do
+        if item.part == entry.part then
+            table.remove(chosen, index)
+            return
+        end
+    end
+    table.insert(chosen, entry)
 end
 
-local function onPlankPicked(target)
+local function entryFromTarget(target)
     local model = resolveModel(target)
-    if not model or model.Name ~= "Plank" or not isOwned(model) then
-        stopPicking()
-        return
+    if not model or model.Name ~= "Plank" or not isOwned(model) or not selectedClass then
+        return nil
     end
     local treeClass = model:FindFirstChild("TreeClass")
-    if not treeClass or not treeClass:IsA("StringValue") or treeClass.Value == "" then
-        stopPicking()
+    if not treeClass or treeClass.Value ~= selectedClass then
+        return nil
+    end
+    for _, entry in ipairs(filteredPlanks) do
+        if entry.model == model then
+            return entry
+        end
+    end
+    return nil
+end
+
+local function selectClick()
+    if not selectedClass then
+        warn("[Jell] BP Filla: Select a plank type")
         return
     end
-    selectedClass = treeClass.Value
     allPlanks = scanPlanks(selectedClass)
-    local yMin, yMax = 0, 0
-    if #allPlanks > 0 then
-        yMin, yMax = math.huge, -math.huge
-        for _, entry in ipairs(allPlanks) do
-            yMin = math.min(yMin, entry.sizeY)
-            yMax = math.max(yMax, entry.sizeY)
+    refilter()
+    local entry = entryFromTarget(Mouse.Target)
+    if not entry then
+        return
+    end
+    toggleChosen(entry)
+    if #chosen == 0 then
+        plankIndex = 1
+    end
+    drawOutlines()
+end
+
+local function selectGroup()
+    if not selectedClass then
+        warn("[Jell] BP Filla: Select a plank type")
+        return
+    end
+    allPlanks = scanPlanks(selectedClass)
+    refilter()
+    if not entryFromTarget(Mouse.Target) then
+        return
+    end
+    for _, entry in ipairs(filteredPlanks) do
+        toggleChosen(entry)
+    end
+    if #chosen == 0 then
+        plankIndex = 1
+    end
+    drawOutlines()
+end
+
+local function ensureLasso()
+    if lassoGui and lassoGui.Parent then
+        return
+    end
+    local host = outlineHost()
+    if not host then
+        return
+    end
+    lassoGui = make("ScreenGui", {
+        Name = LASSO_NAME,
+        ResetOnSpawn = false,
+        IgnoreGuiInset = true,
+        DisplayOrder = 20,
+        ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+    }, host)
+    lassoFrame = make("Frame", {
+        BackgroundColor3 = Color3.fromRGB(60, 130, 255),
+        BackgroundTransparency = 0.75,
+        BorderSizePixel = 0,
+        Visible = false,
+        ZIndex = 10,
+    }, lassoGui)
+    make("UIStroke", {
+        Color = Color3.fromRGB(120, 180, 255),
+        Thickness = 1.5,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+    }, lassoFrame)
+end
+
+local function hideLasso()
+    lassoDragging = false
+    lassoStart = nil
+    if lassoFrame then
+        lassoFrame.Visible = false
+    end
+end
+
+local function updateLasso(currentPos)
+    if not lassoFrame or not lassoStart then
+        return
+    end
+    local minX = math.min(lassoStart.X, currentPos.X)
+    local minY = math.min(lassoStart.Y, currentPos.Y)
+    local maxX = math.max(lassoStart.X, currentPos.X)
+    local maxY = math.max(lassoStart.Y, currentPos.Y)
+    lassoFrame.Position = UDim2.fromOffset(minX, minY)
+    lassoFrame.Size = UDim2.fromOffset(maxX - minX, maxY - minY)
+    lassoFrame.Visible = true
+end
+
+local function selectLasso(startPos, endPos)
+    if not startPos or not endPos or not selectedClass then
+        if not selectedClass then
+            warn("[Jell] BP Filla: Select a plank type")
         end
-        filterMin = yMin
-        filterMax = yMax
-    else
-        filterMin = 0
-        filterMax = 0
+        return
     end
-    if range then
-        range.setBounds(0, math.max(10, yMax))
-        range.set(filterMin, filterMax)
+    local minX = math.min(startPos.X, endPos.X)
+    local minY = math.min(startPos.Y, endPos.Y)
+    local maxX = math.max(startPos.X, endPos.X)
+    local maxY = math.max(startPos.Y, endPos.Y)
+    if (maxX - minX) < 6 or (maxY - minY) < 6 then
+        return
     end
-    applyFilter()
-    stopPicking()
+    allPlanks = scanPlanks(selectedClass)
+    refilter()
+    local cam = Workspace.CurrentCamera
+    if not cam then
+        return
+    end
+    local inset = Services.GuiService:GetGuiInset()
+    for _, entry in ipairs(filteredPlanks) do
+        if entry.part and entry.part.Parent then
+            local screenPos, onScreen = cam:WorldToScreenPoint(entry.part.Position)
+            local sx = screenPos.X + inset.X
+            local sy = screenPos.Y + inset.Y
+            if onScreen and screenPos.Z > 0 and sx >= minX and sx <= maxX and sy >= minY and sy <= maxY then
+                toggleChosen(entry)
+            end
+        end
+    end
+    if #chosen == 0 then
+        plankIndex = 1
+    end
+    drawOutlines()
 end
 
 local function nextPlank()
-    if #filteredPlanks == 0 then
+    if #chosen == 0 then
         return nil
     end
-    local entry = filteredPlanks[plankIndex]
-    plankIndex = (plankIndex % #filteredPlanks) + 1
+    local entry = chosen[plankIndex]
+    plankIndex = (plankIndex % #chosen) + 1
     if not entry or not entry.part or not entry.part.Parent then
         return nil
     end
@@ -589,8 +799,8 @@ local function onBlueprintClicked(target)
     if not isBlueprint(model) then
         return
     end
-    if #filteredPlanks == 0 then
-        warn("[Jell] BP Filla: No filtered planks to place")
+    if #chosen == 0 then
+        warn("[Jell] BP Filla: No planks selected")
         return
     end
     if busy or filling then
@@ -627,8 +837,8 @@ local function startFill()
         warn("[Jell] BP Filla: Busy")
         return
     end
-    if #filteredPlanks == 0 then
-        warn("[Jell] BP Filla: No filtered planks selected")
+    if #chosen == 0 then
+        warn("[Jell] BP Filla: No planks selected")
         return
     end
     local blueprints = ownedBlueprints()
@@ -645,7 +855,7 @@ local function startFill()
             if token ~= fillToken or not started then
                 break
             end
-            local entry = filteredPlanks[((index - 1) % #filteredPlanks) + 1]
+            local entry = chosen[((index - 1) % #chosen) + 1]
             if entry and entry.part and entry.part.Parent and blueprint.Parent then
                 teleportObject(entry.part, CFrame.new(blueprintCenter(blueprint)), true)
             end
@@ -666,10 +876,11 @@ local function clicksAccepted()
 end
 
 local function bindWorld()
-    if worldConn then
-        worldConn:Disconnect()
+    for _, conn in ipairs(worldConns) do
+        conn:Disconnect()
     end
-    worldConn = UserInputService.InputBegan:Connect(function(input, processed)
+    table.clear(worldConns)
+    table.insert(worldConns, UserInputService.InputBegan:Connect(function(input, processed)
         if not clicksAccepted() then
             return
         end
@@ -679,21 +890,57 @@ local function bindWorld()
         if pointerOverDash() or UserInputService:GetFocusedTextBox() then
             return
         end
-        if picking then
-            onPlankPicked(Mouse.Target)
+        if lasso then
+            ensureLasso()
+            lassoDragging = true
+            lassoStart = UserInputService:GetMouseLocation()
+            if lassoFrame then
+                lassoFrame.Size = UDim2.fromOffset(0, 0)
+                lassoFrame.Visible = false
+            end
+            return
+        end
+        if groupSelect then
+            selectGroup()
+            return
+        end
+        if clickSelect then
+            selectClick()
             return
         end
         if clickFill then
             onBlueprintClicked(Mouse.Target)
         end
-    end)
+    end))
+    table.insert(worldConns, UserInputService.InputChanged:Connect(function(input)
+        if not (lassoDragging and input.UserInputType == Enum.UserInputType.MouseMovement) then
+            return
+        end
+        if not clicksAccepted() then
+            hideLasso()
+            return
+        end
+        updateLasso(UserInputService:GetMouseLocation())
+    end))
+    table.insert(worldConns, UserInputService.InputEnded:Connect(function(input)
+        if not (lassoDragging and input.UserInputType == Enum.UserInputType.MouseButton1) then
+            return
+        end
+        local startPos = lassoStart
+        local endPos = UserInputService:GetMouseLocation()
+        hideLasso()
+        if clicksAccepted() then
+            selectLasso(startPos, endPos)
+        end
+    end))
 end
 
 local function unbindWorld()
-    if worldConn then
-        worldConn:Disconnect()
-        worldConn = nil
+    for _, conn in ipairs(worldConns) do
+        conn:Disconnect()
     end
+    table.clear(worldConns)
+    hideLasso()
 end
 
 local function sweepOutlines()
@@ -701,6 +948,10 @@ local function sweepOutlines()
         local existing = parent:FindFirstChild(OUTLINE_NAME)
         if existing and existing ~= outlineFolder then
             existing:Destroy()
+        end
+        local lassoExisting = parent:FindFirstChild(LASSO_NAME)
+        if lassoExisting and lassoExisting ~= lassoGui then
+            lassoExisting:Destroy()
         end
     end
 end
@@ -909,6 +1160,181 @@ local function rangeRow(parent, labelText, order, boundsMin, boundsMax, startLow
     }
 end
 
+local function closeMenu()
+    menuAnchor = nil
+    if menu then
+        menu:Destroy()
+        menu = nil
+    end
+end
+
+local function menuHost()
+    if dashWindow and dashWindow.Parent then
+        return dashWindow
+    end
+    return root
+end
+
+local function openTypeMenu()
+    if menuAnchor == typeButton then
+        closeMenu()
+        return
+    end
+    closeMenu()
+    local host = menuHost()
+    if not host or not typeButton then
+        return
+    end
+    menuAnchor = typeButton
+    local names = plankClasses()
+    local count = math.max(#names, 1)
+    local height = math.min(count * ROW_H, MENU_MAX)
+    local btnTop = typeButton.AbsolutePosition.Y - host.AbsolutePosition.Y
+    local below = host.AbsoluteSize.Y - (btnTop + typeButton.AbsoluteSize.Y)
+    local y = btnTop + typeButton.AbsoluteSize.Y + 2
+    if below < height + 4 then
+        y = math.max(0, btnTop - height - 2)
+    end
+    local x = typeButton.AbsolutePosition.X - host.AbsolutePosition.X
+    local width = typeButton.AbsoluteSize.X
+
+    local backdrop = make("TextButton", {
+        Name = "TypeMenuBackdrop",
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        Text = "",
+        AutoButtonColor = false,
+        ZIndex = 20,
+    }, host)
+    menu = backdrop
+    backdrop.MouseButton1Click:Connect(function()
+        task.defer(closeMenu)
+    end)
+
+    local list = make("ScrollingFrame", {
+        Size = UDim2.fromOffset(width, height),
+        Position = UDim2.fromOffset(x, y),
+        BackgroundColor3 = MENU,
+        BorderSizePixel = 0,
+        ScrollBarThickness = 3,
+        ScrollBarImageColor3 = STROKE,
+        CanvasSize = UDim2.new(),
+        AutomaticCanvasSize = Enum.AutomaticSize.Y,
+        Active = true,
+        ZIndex = 21,
+    }, backdrop)
+    make("UIListLayout", {
+        FillDirection = Enum.FillDirection.Vertical,
+        SortOrder = Enum.SortOrder.LayoutOrder,
+    }, list)
+
+    local rows = {}
+    for _, name in ipairs(names) do
+        table.insert(rows, name)
+    end
+    if #rows == 0 then
+        table.insert(rows, nil)
+    end
+    for index, name in ipairs(rows) do
+        local picked = name ~= nil and name == selectedClass
+        local row = make("TextButton", {
+            Size = UDim2.new(1, 0, 0, ROW_H),
+            BackgroundColor3 = FIELD,
+            BackgroundTransparency = picked and 0 or 1,
+            BorderSizePixel = 0,
+            Font = Enum.Font.SourceSans,
+            Text = name or "None",
+            TextSize = 15,
+            TextColor3 = name and TEXT or MUTED,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            AutoButtonColor = false,
+            LayoutOrder = index,
+            Active = name ~= nil,
+            ZIndex = 22,
+        }, list)
+        make("UIPadding", {
+            PaddingLeft = UDim.new(0, 6),
+        }, row)
+        row.MouseEnter:Connect(function()
+            if not name then
+                return
+            end
+            row.BackgroundColor3 = HOVER
+            row.BackgroundTransparency = 0
+        end)
+        row.MouseLeave:Connect(function()
+            row.BackgroundColor3 = FIELD
+            row.BackgroundTransparency = picked and 0 or 1
+        end)
+        row.MouseButton1Click:Connect(function()
+            if not name then
+                return
+            end
+            chooseClass(name)
+            task.defer(closeMenu)
+        end)
+    end
+end
+
+local function setMode(mode, on)
+    if on then
+        clickSelect = mode == "click"
+        groupSelect = mode == "group"
+        lasso = mode == "lasso"
+        if mode ~= "lasso" then
+            hideLasso()
+        end
+    elseif mode == "click" then
+        clickSelect = false
+    elseif mode == "group" then
+        groupSelect = false
+    elseif mode == "lasso" then
+        lasso = false
+        hideLasso()
+    end
+    paintModes()
+end
+
+local function modeRow(parent, labelText, mode, order)
+    local row = make("Frame", {
+        Size = UDim2.new(1, 0, 0, ROW_H),
+        BackgroundTransparency = 1,
+        LayoutOrder = order,
+    }, parent)
+    make("TextLabel", {
+        Size = UDim2.new(1, -40, 1, 0),
+        BackgroundTransparency = 1,
+        Font = Enum.Font.SourceSans,
+        Text = labelText,
+        TextSize = 15,
+        TextColor3 = LABEL,
+        TextXAlignment = Enum.TextXAlignment.Left,
+    }, row)
+    local track = make("TextButton", {
+        Size = UDim2.fromOffset(28, 14),
+        Position = UDim2.new(1, -28, 0.5, -7),
+        BackgroundColor3 = FIELD,
+        Text = "",
+        AutoButtonColor = false,
+    }, row)
+    make("UICorner", { CornerRadius = UDim.new(1, 0) }, track)
+    local knob = make("Frame", {
+        Size = UDim2.fromOffset(10, 10),
+        Position = UDim2.fromOffset(2, 2),
+        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+        BorderSizePixel = 0,
+    }, track)
+    make("UICorner", { CornerRadius = UDim.new(1, 0) }, knob)
+    modeTracks[mode] = { track = track, knob = knob }
+    track.MouseButton1Click:Connect(function()
+        if not started then
+            return
+        end
+        local enabled = (mode == "click" and clickSelect) or (mode == "group" and groupSelect) or (mode == "lasso" and lasso)
+        setMode(mode, not enabled)
+    end)
+end
+
 local function build(parent)
     root = make("ScrollingFrame", {
         Name = "BPFillaRoot",
@@ -937,19 +1363,57 @@ local function build(parent)
     }, list)
 
     heading(list, "Selection", 1)
-    selectBtn = actionRow(list, "Select plank type", "Start", 2)
-    selectBtn.MouseButton1Click:Connect(function()
-        if not started then
-            return
-        end
-        picking = not picking
-        paintSelect()
+
+    local typeBlock = make("Frame", {
+        Size = UDim2.new(1, 0, 0, 42),
+        BackgroundTransparency = 1,
+        LayoutOrder = 2,
+    }, list)
+    make("TextLabel", {
+        Size = UDim2.new(1, 0, 0, 16),
+        BackgroundTransparency = 1,
+        Font = Enum.Font.SourceSans,
+        Text = "Plank type",
+        TextSize = 15,
+        TextColor3 = LABEL,
+        TextXAlignment = Enum.TextXAlignment.Left,
+    }, typeBlock)
+    typeButton = make("TextButton", {
+        Size = UDim2.new(1, 0, 0, ROW_H),
+        Position = UDim2.fromOffset(0, 20),
+        BackgroundColor3 = FIELD,
+        BorderSizePixel = 0,
+        Text = "",
+        AutoButtonColor = false,
+    }, typeBlock)
+    typeLabel = make("TextLabel", {
+        Size = UDim2.new(1, -22, 1, 0),
+        Position = UDim2.fromOffset(6, 0),
+        BackgroundTransparency = 1,
+        Font = Enum.Font.SourceSans,
+        Text = "Select",
+        TextSize = 15,
+        TextColor3 = MUTED,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+    }, typeButton)
+    make("TextLabel", {
+        Size = UDim2.fromOffset(16, ROW_H),
+        Position = UDim2.new(1, -16, 0, 0),
+        BackgroundTransparency = 1,
+        Font = Enum.Font.SourceSans,
+        Text = "v",
+        TextSize = 14,
+        TextColor3 = MUTED,
+    }, typeButton)
+    typeButton.MouseButton1Click:Connect(function()
+        openTypeMenu()
     end)
 
     local countRow = make("Frame", {
         Size = UDim2.new(1, 0, 0, ROW_H),
         BackgroundTransparency = 1,
-        LayoutOrder = 3,
+        LayoutOrder = 8,
     }, list)
     make("TextLabel", {
         Size = UDim2.new(1, -40, 1, 0),
@@ -971,20 +1435,30 @@ local function build(parent)
         TextXAlignment = Enum.TextXAlignment.Right,
     }, countRow)
 
-    range = rangeRow(list, "Y size", 4, 0, 10, filterMin, filterMax, function(low, high)
+    range = rangeRow(list, "Y size", 3, 0, 10, filterMin, filterMax, function(low, high)
         filterMin = low
         filterMax = high
         if #allPlanks == 0 then
             return
         end
-        applyFilter()
+        refilter()
     end)
 
-    heading(list, "Plank fill", 5)
+    modeRow(list, "Click selection", "click", 4)
+    modeRow(list, "Group selection", "group", 5)
+    modeRow(list, "Lasso", "lasso", 6)
+    local clearBtn = actionRow(list, "Clear selection", "Clear", 7)
+    clearBtn.MouseButton1Click:Connect(function()
+        chosen = {}
+        plankIndex = 1
+        drawOutlines()
+    end)
+
+    heading(list, "Plank fill", 9)
     local clickRow = make("Frame", {
         Size = UDim2.new(1, 0, 0, ROW_H),
         BackgroundTransparency = 1,
-        LayoutOrder = 6,
+        LayoutOrder = 10,
     }, list)
     make("TextLabel", {
         Size = UDim2.new(1, -40, 1, 0),
@@ -1014,8 +1488,8 @@ local function build(parent)
         if not started then
             return
         end
-        if not clickFill and #filteredPlanks == 0 then
-            warn("[Jell] BP Filla: Select and filter planks first")
+        if not clickFill and #chosen == 0 then
+            warn("[Jell] BP Filla: Select planks first")
             clickFill = false
             paintClick()
             return
@@ -1024,7 +1498,7 @@ local function build(parent)
         paintClick()
     end)
 
-    fillBtn = actionRow(list, "Fill all blueprints", "Start", 7)
+    fillBtn = actionRow(list, "Fill all blueprints", "Start", 11)
     fillBtn.MouseButton1Click:Connect(function()
         if not started then
             return
@@ -1032,7 +1506,8 @@ local function build(parent)
         startFill()
     end)
 
-    paintSelect()
+    paintType()
+    paintModes()
     paintFill()
     paintClick()
     paintCount()
@@ -1054,13 +1529,23 @@ end
 
 function api.stop()
     started = false
-    picking = false
+    clickSelect = false
+    groupSelect = false
+    lasso = false
     clickFill = false
+    closeMenu()
+    hideLasso()
+    if lassoGui then
+        lassoGui:Destroy()
+        lassoGui = nil
+        lassoFrame = nil
+    end
     stopFill()
     unbindWorld()
     selectedClass = nil
     allPlanks = {}
     filteredPlanks = {}
+    chosen = {}
     filterMin = 1
     filterMax = 1.5
     plankIndex = 1
@@ -1069,7 +1554,8 @@ function api.stop()
         range.setBounds(0, 10)
         range.set(filterMin, filterMax)
     end
-    paintSelect()
+    paintType()
+    paintModes()
     paintClick()
     paintCount()
 end
@@ -1077,6 +1563,9 @@ end
 function api.setPageOpen(open)
     pageOpen = open == true
     applyOutlineVisibility()
+    if not pageOpen then
+        hideLasso()
+    end
 end
 
 function api.mount(parent, ctx)
@@ -1092,17 +1581,21 @@ end
 
 function api.unmount()
     mounted = false
+    closeMenu()
+    hideLasso()
     disconnectAll()
     if root then
         root:Destroy()
         root = nil
     end
     range = nil
-    selectBtn = nil
     fillBtn = nil
     countLabel = nil
+    typeButton = nil
+    typeLabel = nil
     clickTrack = nil
     clickKnob = nil
+    table.clear(modeTracks)
 end
 
 return api
