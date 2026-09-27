@@ -260,6 +260,12 @@ local rukiryBtn = nil
 local poeBtn = nil
 local quantityValue = nil
 local quantityFill = nil
+local progressCard = nil
+local progressLabel = nil
+local progressFill = nil
+local progressSlide = nil
+local progressGrow = nil
+local buyProgressToken = 0
 
 local function saveConfig()
     if type(writefile) ~= "function" then
@@ -1065,7 +1071,134 @@ local function nuclearReset()
     task.wait(0.5)
 end
 
+local function progressHost(anchor)
+    local current = anchor
+    while current do
+        if current:IsA("GuiObject") and current.Name == "Window" then
+            return current
+        end
+        current = current.Parent
+    end
+    return nil
+end
+
+local function ensureBuyProgress(anchor)
+    if progressCard and progressCard.Parent then
+        return progressCard
+    end
+    local host = progressHost(anchor)
+    if not host then
+        return nil
+    end
+    progressCard = make("Frame", {
+        Name = "ShopProgress",
+        AnchorPoint = Vector2.new(1, 0),
+        Size = UDim2.fromOffset(200, 32),
+        Position = UDim2.new(1, -10, 0, -36),
+        BackgroundColor3 = Color3.fromRGB(32, 32, 32),
+        BorderSizePixel = 0,
+        ZIndex = 20,
+    }, host)
+    make("UICorner", { CornerRadius = UDim.new(0, 4) }, progressCard)
+    progressLabel = make("TextLabel", {
+        Size = UDim2.new(1, -12, 0, 14),
+        Position = UDim2.fromOffset(6, 2),
+        BackgroundTransparency = 1,
+        Font = Enum.Font.SourceSans,
+        Text = "",
+        TextSize = 13,
+        TextColor3 = TEXT,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        ZIndex = 21,
+    }, progressCard)
+    local track = make("Frame", {
+        Size = UDim2.new(1, -12, 0, 6),
+        Position = UDim2.fromOffset(6, 20),
+        BackgroundColor3 = FIELD,
+        BorderSizePixel = 0,
+        ZIndex = 21,
+    }, progressCard)
+    make("UICorner", { CornerRadius = UDim.new(1, 0) }, track)
+    progressFill = make("Frame", {
+        Size = UDim2.new(0, 0, 1, 0),
+        BackgroundColor3 = GREEN,
+        BorderSizePixel = 0,
+        ZIndex = 22,
+    }, track)
+    make("UICorner", { CornerRadius = UDim.new(1, 0) }, progressFill)
+    return progressCard
+end
+
+local function slideBuyProgress(shown)
+    if not (progressCard and progressCard.Parent) then
+        return
+    end
+    if progressSlide then
+        progressSlide:Cancel()
+    end
+    local y = shown and 34 or -36
+    progressSlide = Services.TweenService:Create(
+        progressCard,
+        TweenInfo.new(0.3, Enum.EasingStyle.Quad, shown and Enum.EasingDirection.Out or Enum.EasingDirection.In),
+        { Position = UDim2.new(1, -10, 0, y) }
+    )
+    progressSlide:Play()
+end
+
+local function showBuyProgress(name, total)
+    local card = ensureBuyProgress(purchaseBtn)
+    if not card or not progressLabel or not progressFill then
+        return nil
+    end
+    buyProgressToken += 1
+    local token = buyProgressToken
+    card:SetAttribute("Token", token)
+    card:SetAttribute("Shown", true)
+    progressLabel.Text = string.format("0 / %d  %s", total, name)
+    if progressGrow then
+        progressGrow:Cancel()
+    end
+    progressFill.Size = UDim2.new(0, 0, 1, 0)
+    slideBuyProgress(true)
+    return token
+end
+
+local function setBuyProgress(name, bought, total)
+    if not (progressLabel and progressFill and progressFill.Parent) then
+        return
+    end
+    progressLabel.Text = string.format("%d / %d  %s", bought, total, name)
+    if progressGrow then
+        progressGrow:Cancel()
+    end
+    progressGrow = Services.TweenService:Create(
+        progressFill,
+        TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+        { Size = UDim2.new(math.clamp(bought / total, 0, 1), 0, 1, 0) }
+    )
+    progressGrow:Play()
+end
+
+local function hideBuyProgress(token)
+    if not (progressCard and progressCard.Parent) then
+        return
+    end
+    if token ~= progressCard:GetAttribute("Token") then
+        return
+    end
+    if progressCard:GetAttribute("Shown") ~= true then
+        return
+    end
+    progressCard:SetAttribute("Shown", false)
+    slideBuyProgress(false)
+end
+
 local function runBuyLoop(item, totalQty, pressedCF, onDone)
+    local token = nil
+    if totalQty > 1 then
+        token = showBuyProgress(item.Name, totalQty)
+    end
     fetchAllNpcIds()
     local bought = 0
     local restock = 0
@@ -1129,6 +1262,9 @@ local function runBuyLoop(item, totalQty, pressedCF, onDone)
                 end
                 if ok then
                     bought += 1
+                    if token then
+                        setBuyProgress(item.Name, bought, totalQty)
+                    end
                 end
             end
         end
@@ -1136,6 +1272,12 @@ local function runBuyLoop(item, totalQty, pressedCF, onDone)
     buying = false
     if onDone then
         onDone()
+    end
+    if token then
+        if bought >= totalQty then
+            task.wait(0.4)
+        end
+        hideBuyProgress(token)
     end
 end
 
