@@ -72,6 +72,14 @@ local MOVE_STEP = "JellDashboardShiftWalk"
 local AFK_CONN = "JellDashboardAfk"
 local JUMP_CONN = "JellDashboardJump"
 local NOCLIP_CONN = "JellDashboardNoclip"
+local NOCLIP_WATCH = "JellDashboardNoclipWatch"
+local HOVER_CONN = "JellDashboardHoverConn"
+local HOVER_MOVE_CONN = "JellDashboardHoverMove"
+local SHIFT_BEGAN = "JellDashboardShiftBegan"
+local SHIFT_STEP = "JellDashboardShiftStep"
+local LIGHTING_CONNS = "JellDashboardLightingConns"
+local SAWMILL_CONNS = "JellDashboardSawmillConns"
+local JANITOR_GEN = "JellDashboardJanitorGen"
 
 local RED = Color3.fromRGB(210, 70, 70)
 local GREEN = Color3.fromRGB(70, 190, 105)
@@ -209,7 +217,33 @@ if type(_G.JellSawmillStop) == "function" then
     pcall(_G.JellSawmillStop)
 end
 
-local function clearSawmillRing()
+local dashboardClosed = false
+
+local function dropConn(key)
+    local conn = shared[key]
+    if conn then
+        pcall(function()
+            conn:Disconnect()
+        end)
+        shared[key] = nil
+    end
+end
+
+local function dropConnList(key)
+    local list = shared[key]
+    if type(list) ~= "table" then
+        shared[key] = nil
+        return
+    end
+    for _, conn in ipairs(list) do
+        pcall(function()
+            conn:Disconnect()
+        end)
+    end
+    shared[key] = nil
+end
+
+local function sweepSawmillRings()
     local world = Services.Workspace
     for _, child in ipairs(world:GetChildren()) do
         if child.Name == "AuraCircle" then
@@ -218,9 +252,13 @@ local function clearSawmillRing()
             child:Destroy()
         end
     end
+end
+
+local function sweepSawmillHighlights()
     if _G.JellSawmillHighlightOk then
         return
     end
+    local world = Services.Workspace
     for _, folderName in ipairs({ "LogModels", "PlayerModels" }) do
         local folder = world:FindFirstChild(folderName)
         if folder then
@@ -233,7 +271,69 @@ local function clearSawmillRing()
     end
 end
 
-RunService:BindToRenderStep("JellClearSawmillRing", Enum.RenderPriority.Last.Value, clearSawmillRing)
+local function clearSawmillRing()
+    sweepSawmillRings()
+    sweepSawmillHighlights()
+end
+
+local function bindSawmillJanitor()
+    pcall(function()
+        RunService:UnbindFromRenderStep("JellClearSawmillRing")
+    end)
+    dropConnList(SAWMILL_CONNS)
+    shared[JANITOR_GEN] = (tonumber(shared[JANITOR_GEN]) or 0) + 1
+    local generation = shared[JANITOR_GEN]
+    local sawmillConns = {}
+    local hooked = {}
+    local function hookFolder(folder)
+        if hooked[folder] then
+            return
+        end
+        hooked[folder] = true
+        table.insert(sawmillConns, folder.DescendantAdded:Connect(function(desc)
+            if desc.Name == "SawmillLoaderHighlight" and not _G.JellSawmillHighlightOk then
+                desc:Destroy()
+            end
+        end))
+    end
+    local world = Services.Workspace
+    table.insert(sawmillConns, world.ChildAdded:Connect(function(child)
+        if child.Name == "LogModels" or child.Name == "PlayerModels" then
+            hookFolder(child)
+            return
+        end
+        if child.Name == "AuraCircle" or (child.Name == "SawmillLoaderAura" and not _G.JellSawmillCircleOk) then
+            child:Destroy()
+        end
+    end))
+    for _, folderName in ipairs({ "LogModels", "PlayerModels" }) do
+        local folder = world:FindFirstChild(folderName)
+        if folder then
+            hookFolder(folder)
+        end
+    end
+    shared[SAWMILL_CONNS] = sawmillConns
+    task.spawn(function()
+        local highlightOk = _G.JellSawmillHighlightOk == true
+        while shared[JANITOR_GEN] == generation and not dashboardClosed do
+            task.wait(1)
+            if shared[JANITOR_GEN] ~= generation or dashboardClosed then
+                return
+            end
+            if not _G.JellSawmillCircleOk then
+                sweepSawmillRings()
+            end
+            local now = _G.JellSawmillHighlightOk == true
+            if highlightOk and not now then
+                sweepSawmillHighlights()
+            end
+            highlightOk = now
+        end
+    end)
+end
+
+clearSawmillRing()
+bindSawmillJanitor()
 
 local function uiParents()
     local list = {}
@@ -345,7 +445,19 @@ local function lightingEffect(name, className)
     return effect
 end
 
+local enhancedReady = false
+
 local function enableEnhanced()
+    if enhancedReady then
+        local bloom = Lighting:FindFirstChild("EnhancedBloom")
+        local correction = Lighting:FindFirstChild("EnhancedCC")
+        local rays = Lighting:FindFirstChild("EnhancedRays")
+        if bloom and bloom.Enabled and correction and correction.Enabled and rays and rays.Enabled
+            and Lighting.Brightness == 3 and Lighting.ExposureCompensation == 0.5
+        then
+            return
+        end
+    end
     Lighting.Brightness = 3
     Lighting.ExposureCompensation = 0.5
     local bloom = lightingEffect("EnhancedBloom", "BloomEffect")
@@ -362,9 +474,11 @@ local function enableEnhanced()
     rays.Intensity = 0.1
     rays.Spread = 1
     rays.Enabled = true
+    enhancedReady = true
 end
 
 local function restoreEnhanced()
+    enhancedReady = false
     for _, name in ipairs({ "EnhancedBloom", "EnhancedCC", "EnhancedRays" }) do
         local effect = Lighting:FindFirstChild(name)
         if effect then
@@ -431,42 +545,117 @@ local function restoreBridge()
     restored.Parent = Services.Workspace
 end
 
+local lightingLock = false
+local lightingGeneration = 0
+
+local function assignProp(inst, prop, value)
+    if inst[prop] ~= value then
+        inst[prop] = value
+    end
+end
+
+local function disconnectLighting()
+    lightingGeneration += 1
+    dropConnList(LIGHTING_CONNS)
+    pcall(function()
+        RunService:UnbindFromRenderStep(LIGHTING_STEP)
+    end)
+end
+
 local function applyLighting()
+    if lightingLock then
+        return
+    end
+    lightingLock = true
     captureLighting()
     if settings.alwaysDay then
-        Lighting.ClockTime = 12
-        Lighting.Brightness = 2
-        Lighting.Ambient = Color3.fromRGB(255, 255, 255)
-        Lighting.OutdoorAmbient = Color3.fromRGB(255, 255, 255)
+        assignProp(Lighting, "ClockTime", 12)
+        assignProp(Lighting, "Brightness", 2)
+        assignProp(Lighting, "Ambient", Color3.fromRGB(255, 255, 255))
+        assignProp(Lighting, "OutdoorAmbient", Color3.fromRGB(255, 255, 255))
     end
-    Lighting.GlobalShadows = not settings.disableShadows
+    assignProp(Lighting, "GlobalShadows", not settings.disableShadows)
     if settings.disableFog then
-        Lighting.FogStart = 0
-        Lighting.FogEnd = 1000000
+        assignProp(Lighting, "FogStart", 0)
+        assignProp(Lighting, "FogEnd", 1000000)
         local atmosphere = atmosphereOf()
         if atmosphere then
-            atmosphere.Density = 0
-            atmosphere.Haze = 0
+            assignProp(atmosphere, "Density", 0)
+            assignProp(atmosphere, "Haze", 0)
         end
     end
     if settings.enhancedVisuals then
         enableEnhanced()
     end
+    lightingLock = false
 end
 
 local function bindLighting()
-    pcall(function()
-        RunService:UnbindFromRenderStep(LIGHTING_STEP)
-    end)
-    if settings.alwaysDay or settings.disableShadows or settings.disableFog or settings.enhancedVisuals then
-        RunService:BindToRenderStep(LIGHTING_STEP, Enum.RenderPriority.Last.Value, applyLighting)
+    disconnectLighting()
+    local generation = lightingGeneration
+    if not (settings.alwaysDay or settings.disableShadows or settings.disableFog or settings.enhancedVisuals) then
+        return
     end
+    local conns = {}
+    local function watch(inst, prop)
+        if not inst then
+            return
+        end
+        table.insert(conns, inst:GetPropertyChangedSignal(prop):Connect(function()
+            if lightingLock or lightingGeneration ~= generation then
+                return
+            end
+            applyLighting()
+        end))
+    end
+    if settings.alwaysDay then
+        watch(Lighting, "ClockTime")
+        watch(Lighting, "Ambient")
+        watch(Lighting, "OutdoorAmbient")
+    end
+    if settings.alwaysDay or settings.enhancedVisuals then
+        watch(Lighting, "Brightness")
+    end
+    if settings.enhancedVisuals then
+        watch(Lighting, "ExposureCompensation")
+        for _, name in ipairs({ "EnhancedBloom", "EnhancedCC", "EnhancedRays" }) do
+            watch(Lighting:FindFirstChild(name), "Enabled")
+        end
+    end
+    watch(Lighting, "GlobalShadows")
+    if settings.disableFog then
+        watch(Lighting, "FogStart")
+        watch(Lighting, "FogEnd")
+        local atmosphere = atmosphereOf()
+        if atmosphere then
+            watch(atmosphere, "Density")
+            watch(atmosphere, "Haze")
+        end
+    end
+    table.insert(conns, Lighting.ChildAdded:Connect(function(child)
+        if lightingGeneration ~= generation then
+            return
+        end
+        local relevant = child:IsA("Atmosphere")
+            or child.Name == "EnhancedBloom"
+            or child.Name == "EnhancedCC"
+            or child.Name == "EnhancedRays"
+        if not relevant then
+            return
+        end
+        task.defer(function()
+            if lightingGeneration ~= generation then
+                return
+            end
+            applyLighting()
+            bindLighting()
+        end)
+    end))
+    shared[LIGHTING_CONNS] = conns
 end
 
 local function restoreLighting()
-    pcall(function()
-        RunService:UnbindFromRenderStep(LIGHTING_STEP)
-    end)
+    disconnectLighting()
     restoreAlwaysDay()
     restoreShadows()
     restoreFog()
@@ -490,6 +679,12 @@ pcall(function()
     RunService:UnbindFromRenderStep(HOVER_STEP)
 end)
 pcall(function()
+    RunService:UnbindFromRenderStep(MOVE_STEP)
+end)
+pcall(function()
+    RunService:UnbindFromRenderStep("JellClearSawmillRing")
+end)
+pcall(function()
     RunService:UnbindFromRenderStep("LT2DuperLighting")
 end)
 ContextActionService:UnbindAction(CLICK_ACTION)
@@ -510,7 +705,7 @@ local screenGui = make("ScreenGui", {
     DisplayOrder = 999,
 }, uiParent)
 
-local window = make("CanvasGroup", {
+local window = make("Frame", {
     Name = "Window",
     Size = UDim2.fromOffset(WINDOW_W, WINDOW_H),
     Position = UDim2.new(1, -(WINDOW_W + WINDOW_EDGE), 1, -(WINDOW_H + WINDOW_EDGE - 12)),
@@ -518,7 +713,7 @@ local window = make("CanvasGroup", {
     BackgroundTransparency = 1 - (backgroundOpacity / 100),
     BorderSizePixel = 0,
     Active = true,
-    GroupTransparency = 1,
+    ClipsDescendants = true,
 }, screenGui)
 
 make("TextButton", {
@@ -1248,18 +1443,22 @@ make("UIPadding", {
     PaddingBottom = UDim.new(0, 3),
 }, hoverHint)
 
-local function updateHoverHint()
-    if not (hoverHint and hoverHint.Parent) then
-        return
-    end
-    local target = Player:GetMouse().Target
-    local label = if target then hoverLines(target) else nil
-    if not label or pointerOverWindow() or UserInputService:GetFocusedTextBox() then
+local hoverTarget
+local hoverLabel
+local lastMouse = Vector2.new(-1, -1)
+
+local function hideHover()
+    if hoverHint.Visible then
         hoverHint.Visible = false
+    end
+end
+
+local function placeHoverHint()
+    local mousePos = UserInputService:GetMouseLocation()
+    if mousePos == lastMouse then
         return
     end
-    hoverHint.Text = label
-    local mousePos = UserInputService:GetMouseLocation()
+    lastMouse = mousePos
     local gui = hoverHint:FindFirstAncestorWhichIsA("ScreenGui")
     local x, y = mousePos.X, mousePos.Y
     if not (gui and gui.IgnoreGuiInset) then
@@ -1278,11 +1477,62 @@ local function updateHoverHint()
     if py + h > view.Y then
         py = math.max(0, y - 12 - h)
     end
-    hoverHint.Position = UDim2.fromOffset(px, py)
-    hoverHint.Visible = true
+    local nextPos = UDim2.fromOffset(px, py)
+    if hoverHint.Position ~= nextPos then
+        hoverHint.Position = nextPos
+    end
 end
 
-RunService:BindToRenderStep(HOVER_STEP, Enum.RenderPriority.Last.Value, updateHoverHint)
+local function refreshHover()
+    if not (hoverHint and hoverHint.Parent) then
+        return
+    end
+    if pointerOverWindow() or UserInputService:GetFocusedTextBox() then
+        hoverTarget = nil
+        hoverLabel = nil
+        hideHover()
+        return
+    end
+    local target = Player:GetMouse().Target
+    if target ~= hoverTarget then
+        hoverTarget = target
+        hoverLabel = if target then hoverLines(target) else nil
+        lastMouse = Vector2.new(-1, -1)
+        if not hoverLabel then
+            hideHover()
+            return
+        end
+        if hoverHint.Text ~= hoverLabel then
+            hoverHint.Text = hoverLabel
+        end
+    end
+    if not hoverLabel then
+        hideHover()
+        return
+    end
+    placeHoverHint()
+    if not hoverHint.Visible then
+        hoverHint.Visible = true
+    end
+end
+
+dropConn(HOVER_CONN)
+dropConn(HOVER_MOVE_CONN)
+local hoverAccum = 0
+shared[HOVER_CONN] = RunService.Heartbeat:Connect(function(dt)
+    hoverAccum += dt
+    if hoverAccum < 0.05 then
+        return
+    end
+    hoverAccum = 0
+    refreshHover()
+end)
+shared[HOVER_MOVE_CONN] = UserInputService.InputChanged:Connect(function(input)
+    if input.UserInputType ~= Enum.UserInputType.MouseMovement or not hoverHint.Visible then
+        return
+    end
+    placeHoverHint()
+end)
 
 local function onClickTeleport(_, state)
     if state ~= Enum.UserInputState.Begin or not settings.ctrlClick then
@@ -1362,14 +1612,47 @@ local function holdShiftWalk()
     end
 end
 
+local function stopShiftStep()
+    dropConn(SHIFT_STEP)
+end
+
+local function startShiftStep()
+    if shared[SHIFT_STEP] or not settings.disableShiftWalk then
+        return
+    end
+    shared[SHIFT_STEP] = RunService.Stepped:Connect(function()
+        if not settings.disableShiftWalk then
+            stopShiftStep()
+            return
+        end
+        local shift = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)
+            or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
+        if not shift then
+            stopShiftStep()
+            return
+        end
+        holdShiftWalk()
+    end)
+end
+
 local function bindShiftWalk()
     pcall(function()
         RunService:UnbindFromRenderStep(MOVE_STEP)
     end)
+    dropConn(SHIFT_BEGAN)
+    stopShiftStep()
     if not settings.disableShiftWalk then
         return
     end
-    RunService:BindToRenderStep(MOVE_STEP, Enum.RenderPriority.Last.Value, holdShiftWalk)
+    shared[SHIFT_BEGAN] = UserInputService.InputBegan:Connect(function(input)
+        local key = input.KeyCode
+        if key == Enum.KeyCode.LeftShift or key == Enum.KeyCode.RightShift then
+            startShiftStep()
+        end
+    end)
+    if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift) then
+        startShiftStep()
+    end
 end
 
 bindShiftWalk()
@@ -1419,8 +1702,41 @@ local function bindJump()
     end)
 end
 
+local noclipParts = {}
+local noclipCharacter
+
+local function releaseNoclipWatch()
+    dropConn(NOCLIP_WATCH)
+    table.clear(noclipParts)
+    noclipCharacter = nil
+end
+
+local function fillNoclip(character)
+    releaseNoclipWatch()
+    noclipCharacter = character
+    if not character then
+        return
+    end
+    local function take(part)
+        if part:IsA("BasePart") then
+            part.CanCollide = false
+            table.insert(noclipParts, part)
+        end
+    end
+    for _, part in ipairs(character:GetDescendants()) do
+        take(part)
+    end
+    shared[NOCLIP_WATCH] = character.DescendantAdded:Connect(function(part)
+        if settings.noClip and part:IsA("BasePart") then
+            part.CanCollide = false
+            table.insert(noclipParts, part)
+        end
+    end)
+end
+
 local function bindNoclip()
     disconnectShared(NOCLIP_CONN)
+    releaseNoclipWatch()
     if not settings.noClip then
         return
     end
@@ -1429,11 +1745,12 @@ local function bindNoclip()
             return
         end
         local character = Player.Character
-        if not character then
+        if character ~= noclipCharacter then
+            fillNoclip(character)
             return
         end
-        for _, part in ipairs(character:GetDescendants()) do
-            if part:IsA("BasePart") then
+        for _, part in ipairs(noclipParts) do
+            if part.Parent and part.CanCollide then
                 part.CanCollide = false
             end
         end
@@ -2121,6 +2438,12 @@ local function shutdown()
     end
     ContextActionService:UnbindAction(CLICK_ACTION)
     ContextActionService:UnbindAction(TOGGLE_ACTION)
+    dashboardClosed = true
+    dropConn(HOVER_CONN)
+    dropConn(HOVER_MOVE_CONN)
+    dropConn(SHIFT_BEGAN)
+    dropConn(SHIFT_STEP)
+    dropConnList(SAWMILL_CONNS)
     pcall(function()
         RunService:UnbindFromRenderStep(MOVE_STEP)
     end)
@@ -2137,6 +2460,7 @@ local function shutdown()
     disconnectShared(AFK_CONN)
     disconnectShared(JUMP_CONN)
     disconnectShared(NOCLIP_CONN)
+    releaseNoclipWatch()
     screenGui:Destroy()
 end
 
@@ -2167,7 +2491,6 @@ local introTween = Services.TweenService:Create(
     window,
     TweenInfo.new(0.45, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
     {
-        GroupTransparency = 0,
         Position = UDim2.new(1, -(WINDOW_W + WINDOW_EDGE), 1, -(WINDOW_H + WINDOW_EDGE)),
     }
 )
@@ -2181,7 +2504,6 @@ do
     titleBar.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
             introTween:Cancel()
-            window.GroupTransparency = 0
             dragging = true
             dragStart = input.Position
             startPos = window.Position

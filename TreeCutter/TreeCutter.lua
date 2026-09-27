@@ -278,6 +278,7 @@ local modTreeBtn
 local statusLabel
 local menu
 local backdrop
+local pageScroll
 local menuOpen = false
 local statusText = "Off"
 local guiConns = {}
@@ -2142,6 +2143,9 @@ end
 
 function F.closeMenu()
     menuOpen = false
+    if pageScroll and pageScroll.Parent then
+        pageScroll.ScrollingEnabled = true
+    end
     if menu then
         menu:Destroy()
         menu = nil
@@ -2292,6 +2296,9 @@ function F.openMenu()
         return
     end
     menuOpen = true
+    if pageScroll then
+        pageScroll.ScrollingEnabled = false
+    end
     backdrop = F.make("TextButton", {
         Size = UDim2.fromScale(1, 1),
         BackgroundTransparency = 1,
@@ -2299,8 +2306,10 @@ function F.openMenu()
         AutoButtonColor = false,
         ZIndex = 4,
     }, root)
-    backdrop.MouseButton1Click:Connect(function()
-        task.defer(F.closeMenu)
+    backdrop.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            F.closeMenu()
+        end
     end)
     local top = treeBtn.AbsolutePosition.Y - root.AbsolutePosition.Y + treeBtn.AbsoluteSize.Y + 2
     local height = math.min(#options * 22, 220)
@@ -2335,7 +2344,7 @@ function F.openMenu()
             TextXAlignment = Enum.TextXAlignment.Left,
             AutoButtonColor = false,
             LayoutOrder = index,
-            Active = not blocked,
+            Active = true,
             ZIndex = 5,
         }, menu)
         F.make("UIPadding", {
@@ -3121,7 +3130,7 @@ function F.build(parent)
         BackgroundTransparency = 1,
     }, parent)
 
-    local scroll = F.make("ScrollingFrame", {
+    pageScroll = F.make("ScrollingFrame", {
         Size = UDim2.new(1, -16, 1, -16),
         Position = UDim2.fromOffset(8, 8),
         BackgroundTransparency = 1,
@@ -3136,7 +3145,7 @@ function F.build(parent)
         Size = UDim2.new(1, -8, 0, 0),
         BackgroundTransparency = 1,
         AutomaticSize = Enum.AutomaticSize.Y,
-    }, scroll)
+    }, pageScroll)
     F.make("UIListLayout", {
         FillDirection = Enum.FillDirection.Vertical,
         SortOrder = Enum.SortOrder.LayoutOrder,
@@ -3225,7 +3234,10 @@ function F.build(parent)
         TextTruncate = Enum.TextTruncate.AtEnd,
     }, statusBlock)
 
-    treeBtn.MouseButton1Click:Connect(function()
+    treeBtn.InputBegan:Connect(function(input)
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1 then
+            return
+        end
         if menuOpen then
             F.closeMenu()
         else
@@ -3238,7 +3250,9 @@ function F.build(parent)
         if input.UserInputType ~= Enum.UserInputType.MouseButton1 then
             return
         end
-        F.closeMenu()
+        if menuOpen then
+            return
+        end
         quantity = F.quantityFromX(input.Position.X)
         F.paintQuantity()
         local dragging = true
@@ -3262,6 +3276,9 @@ function F.build(parent)
     end)
 
     getBtn.MouseButton1Click:Connect(function()
+        if menuOpen then
+            return
+        end
         F.closeMenu()
         if not F.requireStarted() then
             return
@@ -3309,6 +3326,9 @@ function F.build(parent)
     end)
 
     chopBtn.MouseButton1Click:Connect(function()
+        if menuOpen then
+            return
+        end
         F.closeMenu()
         if not F.requireStarted() then
             return
@@ -3349,6 +3369,9 @@ function F.build(parent)
     end
 
     local function moveLogs(singleSection, busyText)
+        if menuOpen then
+            return
+        end
         F.closeMenu()
         if not F.requireStarted() then
             return
@@ -3405,6 +3428,9 @@ function F.build(parent)
     end)
 
     clickBtn.MouseButton1Click:Connect(function()
+        if menuOpen then
+            return
+        end
         F.closeMenu()
         clickToSell = not clickToSell
         F.paintToggle(clickBtn, clickToSell)
@@ -3418,6 +3444,9 @@ function F.build(parent)
         end
     end)
     cutterBtn.MouseButton1Click:Connect(function()
+        if menuOpen then
+            return
+        end
         F.closeMenu()
         cutterOn = not cutterOn
         F.paintToggle(cutterBtn, cutterOn)
@@ -3431,6 +3460,9 @@ function F.build(parent)
         end
     end)
     hoverBtn.MouseButton1Click:Connect(function()
+        if menuOpen then
+            return
+        end
         F.closeMenu()
         hoverOn = not hoverOn
         F.paintToggle(hoverBtn, hoverOn)
@@ -3445,6 +3477,9 @@ function F.build(parent)
     end)
 
     modSawmillBtn.MouseButton1Click:Connect(function()
+        if menuOpen then
+            return
+        end
         F.closeMenu()
         if modSawmill then
             F.stopMod()
@@ -3471,6 +3506,9 @@ function F.build(parent)
     end)
 
     modTreeBtn.MouseButton1Click:Connect(function()
+        if menuOpen then
+            return
+        end
         F.closeMenu()
         if modding then
             F.stopMod()
@@ -3556,6 +3594,7 @@ function api.unmount()
         root = nil
     end
     treeBtn = nil
+    pageScroll = nil
     treeCaption = nil
     quantityLabel = nil
     quantityFill = nil
