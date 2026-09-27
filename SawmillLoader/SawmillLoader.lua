@@ -700,12 +700,12 @@ local function build(parent)
 
     local sawmillOwnerBtn, sawmillOwnerCaption = field(list, "Sawmill owner", 1)
     local woodOwnerBtn, woodOwnerCaption = field(list, "Wood owner", 2)
-    local sawmillBtn, sawmillCaption = field(list, "Sawmill", 3)
-    local woodBtn, woodCaption = field(list, "Wood", 4)
+    local sawmillBtn, sawmillLabel = field(list, "Sawmill", 3)
+    local woodBtn, woodLabel = field(list, "Wood", 4)
     captions.sawmillOwner = sawmillOwnerCaption
     captions.woodOwner = woodOwnerCaption
-    captions.sawmill = sawmillCaption
-    captions.wood = woodCaption
+    captions.sawmill = sawmillLabel
+    captions.wood = woodLabel
 
     local runBlock = make("Frame", {
         Size = UDim2.new(1, 0, 0, 42),
