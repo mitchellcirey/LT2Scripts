@@ -16,7 +16,7 @@ Do not start a script from the loader. The dashboard loads it from GitHub when i
 
 A page that does not run sets `power = false` on its `SCRIPTS` entry. The dashboard leaves off its power switch and lists those pages above scripts that have one.
 
-A script with a power switch keeps its content page grayed out and ignores input until that switch is on.
+A script with a power switch shows only "Please enable this script" until that switch is on. Do not mount it or let it draw until then.
 
 A script module returns `start`, `stop`, `mount`, and `unmount`. `mount` builds into the frame it is given.
 

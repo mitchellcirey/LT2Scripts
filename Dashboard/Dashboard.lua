@@ -347,17 +347,15 @@ local scriptHost = make("Frame", {
     Visible = false,
 }, content)
 
-local scriptLock = make("TextButton", {
-    Name = "ScriptLock",
+local enableNote = make("TextLabel", {
+    Name = "EnableNote",
     Size = UDim2.fromScale(1, 1),
-    BackgroundColor3 = Color3.fromRGB(120, 120, 120),
-    BackgroundTransparency = 0.45,
-    BorderSizePixel = 0,
-    Text = "",
-    AutoButtonColor = false,
-    Active = true,
+    BackgroundTransparency = 1,
+    Font = Enum.Font.SourceSans,
+    Text = "Please enable this script",
+    TextSize = 18,
+    TextColor3 = Color3.fromRGB(210, 210, 210),
     Visible = false,
-    ZIndex = 20,
 }, content)
 
 local welcomePage = make("Frame", {
@@ -678,21 +676,56 @@ local function paintToggle(state)
     }):Play()
 end
 
-local function paintLock()
-    local locked = false
-    if shownId and scriptHost.Visible then
-        local state = states[shownId]
-        for _, entry in ipairs(SCRIPTS) do
-            if entry.id == shownId and entry.power ~= false and state and not state.started then
-                locked = true
-                break
-            end
+local function scriptNeedsPower(entry)
+    return entry.power ~= false
+end
+
+local function shownEntry()
+    if not shownId then
+        return nil
+    end
+    for _, entry in ipairs(SCRIPTS) do
+        if entry.id == shownId then
+            return entry
         end
     end
-    scriptLock.Visible = locked
+    return nil
+end
+
+local function pageLocked()
+    local entry = shownEntry()
+    local state = shownId and states[shownId]
+    return entry ~= nil
+        and scriptNeedsPower(entry)
+        and state ~= nil
+        and not state.started
+        and not settingsPage.Visible
+end
+
+local function clearHost()
+    for _, child in ipairs(scriptHost:GetChildren()) do
+        child:Destroy()
+    end
+end
+
+local function unmountEntry(entry)
+    local state = states[entry.id]
+    if state.mounted and state.module and type(state.module.unmount) == "function" then
+        state.module.unmount()
+    end
+    state.mounted = false
+    if shownId == entry.id then
+        clearHost()
+    end
+end
+
+local function paintLock()
+    local locked = pageLocked()
+    enableNote.Visible = locked
     if not locked then
         return
     end
+    scriptHost.Visible = false
     local focused = UserInputService:GetFocusedTextBox()
     if focused and focused:IsDescendantOf(scriptHost) then
         focused:ReleaseFocus()
@@ -753,6 +786,41 @@ local function showSettings()
     end
 end
 
+local function showScriptPage(entry)
+    local state = states[entry.id]
+    settingsPage.Visible = false
+    welcomePage.Visible = false
+    settingsBtn.Font = Enum.Font.SourceSans
+    settingsBtn.TextColor3 = Color3.fromRGB(210, 210, 210)
+    if shownId and shownId ~= entry.id then
+        local prev = states[shownId]
+        if prev.mounted and prev.module and type(prev.module.unmount) == "function" then
+            prev.module.unmount()
+        end
+        prev.mounted = false
+        prev.shown = false
+    end
+    shownId = entry.id
+    if scriptNeedsPower(entry) and not state.started then
+        if state.mounted then
+            unmountEntry(entry)
+        end
+        clearHost()
+        scriptHost.Visible = false
+        return
+    end
+    local module = ensureLoaded(entry)
+    if not module or type(module.mount) ~= "function" then
+        return
+    end
+    if not state.mounted then
+        clearHost()
+        module.mount(scriptHost, ctx)
+        state.mounted = true
+    end
+    scriptHost.Visible = true
+end
+
 local function openScript(entry)
     local state = states[entry.id]
     if state.opening then
@@ -760,31 +828,7 @@ local function openScript(entry)
     end
     state.opening = true
     local ok, err = pcall(function()
-        local module = ensureLoaded(entry)
-        if not module or type(module.mount) ~= "function" then
-            return
-        end
-        settingsPage.Visible = false
-        scriptHost.Visible = true
-        welcomePage.Visible = false
-        settingsBtn.Font = Enum.Font.SourceSans
-        settingsBtn.TextColor3 = Color3.fromRGB(210, 210, 210)
-        if shownId ~= entry.id or not state.mounted then
-            if shownId and shownId ~= entry.id then
-                local prev = states[shownId]
-                if prev.module and type(prev.module.unmount) == "function" then
-                    prev.module.unmount()
-                end
-                prev.mounted = false
-                prev.shown = false
-            end
-            for _, child in ipairs(scriptHost:GetChildren()) do
-                child:Destroy()
-            end
-            module.mount(scriptHost, ctx)
-            state.mounted = true
-            shownId = entry.id
-        end
+        showScriptPage(entry)
         for _, other in ipairs(SCRIPTS) do
             states[other.id].shown = other.id == entry.id
             paint(other)
@@ -820,6 +864,12 @@ local function togglePower(entry)
                 state.module.stop()
             end
             state.started = false
+            if state.mounted then
+                unmountEntry(entry)
+            end
+            if shownId == entry.id then
+                scriptHost.Visible = false
+            end
             paint(entry)
             return
         end
@@ -829,6 +879,9 @@ local function togglePower(entry)
         end
         module.start(ctx)
         state.started = true
+        if shownId == entry.id then
+            showScriptPage(entry)
+        end
         paint(entry)
     end)
     state.powering = false

@@ -586,7 +586,7 @@ end
 
 local function refreshHighlights()
     clearHighlights()
-    if running then
+    if not armed or running then
         return
     end
     local owner = findPlayer(sawmillOwner)
@@ -641,13 +641,13 @@ local function watchHighlights()
         end
         table.insert(watchConns, folder.ChildAdded:Connect(function()
             task.delay(0.3, function()
-                if not running then
+                if armed and not running then
                     refreshHighlights()
                 end
             end)
         end))
         table.insert(watchConns, folder.ChildRemoved:Connect(function()
-            if not running then
+            if armed and not running then
                 refreshHighlights()
             end
         end))
@@ -1067,7 +1067,7 @@ function startRun()
         restorePermission()
         paintRun()
         stopCircle()
-        if mounted then
+        if armed and mounted then
             refreshHighlights()
         else
             clearHighlights()
@@ -1085,7 +1085,7 @@ function stopRun()
     restorePermission()
     paintRun()
     stopCircle()
-    if mounted then
+    if armed and mounted then
         refreshHighlights()
     else
         clearHighlights()
@@ -1111,12 +1111,8 @@ function api.stop()
     restorePermission()
     paintRun()
     stopCircle()
-    if mounted then
-        refreshHighlights()
-    else
-        clearHighlights()
-        unwatchHighlights()
-    end
+    clearHighlights()
+    unwatchHighlights()
 end
 
 function api.mount(parent)
@@ -1125,6 +1121,9 @@ function api.mount(parent)
     end
     build(parent)
     mounted = true
+    if not armed then
+        return
+    end
     watchHighlights()
     if not running then
         refreshHighlights()
