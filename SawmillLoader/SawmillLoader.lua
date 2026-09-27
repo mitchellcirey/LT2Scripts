@@ -29,7 +29,6 @@ local RING_HEIGHT = 0.06
 local MAX_WOOD_MARKS = 30
 
 local MAX_STUDS = 8
-local SELL_POSITION = Vector3.new(426, 10, 443.71)
 local ROW_H = 22
 local MENU_MAX = 176
 
@@ -290,19 +289,21 @@ local function getPlayerSawmills(player)
     for _, mill in ipairs(sawmills) do
         counts[mill.name] = (counts[mill.name] or 0) + 1
     end
+    table.sort(sawmills, function(a, b)
+        if a.name == b.name then
+            return a.key < b.key
+        end
+        return a.name < b.name
+    end)
+    local seen = {}
     for _, mill in ipairs(sawmills) do
+        seen[mill.name] = (seen[mill.name] or 0) + 1
         if counts[mill.name] > 1 then
-            mill.label = string.format("%s  %d, %d", mill.name, math.floor(mill.alert.X + 0.5), math.floor(mill.alert.Z + 0.5))
+            mill.label = mill.name .. " " .. tostring(seen[mill.name])
         else
             mill.label = mill.name
         end
     end
-    table.sort(sawmills, function(a, b)
-        if a.label == b.label then
-            return a.key < b.key
-        end
-        return a.label < b.label
-    end)
     return sawmills
 end
 
@@ -340,6 +341,43 @@ local function sleep(seconds, token)
     return token == session
 end
 
+local function sortedSize(size)
+    local dims = { size.X, size.Y, size.Z }
+    table.sort(dims)
+    return dims[1], dims[2], dims[3]
+end
+
+local function logFits(log, woodSection, sawmill, props)
+    local size = woodSection.Size
+    local ok, bounds = pcall(function()
+        local _, boundsSize = log:GetBoundingBox()
+        return boundsSize
+    end)
+    if ok and typeof(bounds) == "Vector3" then
+        size = Vector3.new(
+            math.max(size.X, bounds.X),
+            math.max(size.Y, bounds.Y),
+            math.max(size.Z, bounds.Z)
+        )
+    end
+    local thickness, width, length = sortedSize(size)
+    if length > props.length + 0.15 then
+        return false
+    end
+    if thickness > props.x + 0.05 or width > props.y + 0.05 then
+        return false
+    end
+    if thickness * width < 0.24 then
+        return false
+    end
+    local woodVolume = thickness * width * length
+    local sawmillSize = sawmill.x * sawmill.y * 0.25
+    if sawmillSize > 0 and woodVolume < sawmillSize then
+        return false
+    end
+    return true
+end
+
 local function moveLogs(player, sawmill, rootPart, token)
     local logModels = Workspace:FindFirstChild("LogModels")
     if not logModels then
@@ -355,27 +393,19 @@ local function moveLogs(player, sawmill, rootPart, token)
             return
         end
         if log:FindFirstChild("Owner") and (log.Owner.Value == nil or log.Owner.Value == player) and log.Name ~= "PlaceholderPart" then
-            local timeout = 0
             local woodSection = log:findFirstChild("WoodSection")
             local treeClass = log:findFirstChild("TreeClass")
             local target = log:FindFirstChild("Main") or log:FindFirstChildWhichIsA("BasePart")
             if woodSection and target and not (treeClass and treeClass.Value ~= selectedWood) then
                 local flat = (rootPart.Position - target.Position) * Vector3.new(1, 0, 1)
-                if flat.Magnitude <= MAX_STUDS then
-                    if woodSection.Size.X * woodSection.Size.Z < 0.24 then
-                        log:moveTo(SELL_POSITION)
-                    elseif woodSection.Size.X <= 2.6 and woodSection.Size.Z <= 2.6 then
-                        local woodVolume = woodSection.Size.X * woodSection.Size.Z * woodSection.Size.Y
-                        local sawmillSize = sawmill.x * sawmill.y * 0.25
-                        if woodVolume >= sawmillSize and woodSection.Size.Y <= props.length then
-                            timeout = target.Size.Y / 2
-                            woodSection.CFrame = CFrame.new(sawmill.tpPosition) * sawmill.rot
-                            local remote = ReplicatedStorage:FindFirstChild("Interaction")
-                            remote = remote and remote:FindFirstChild("ClientIsDragging")
-                            if remote then
-                                remote:FireServer(log)
-                            end
-                        end
+                if flat.Magnitude <= MAX_STUDS and logFits(log, woodSection, sawmill, props) then
+                    local _, _, length = sortedSize(woodSection.Size)
+                    local timeout = length / 2
+                    woodSection.CFrame = CFrame.new(sawmill.tpPosition) * sawmill.rot
+                    local remote = ReplicatedStorage:FindFirstChild("Interaction")
+                    remote = remote and remote:FindFirstChild("ClientIsDragging")
+                    if remote then
+                        remote:FireServer(log)
                     end
                     if not sleep(timeout, token) then
                         return
@@ -449,10 +479,11 @@ local function drawAura(centerPosition)
 end
 
 local function circleActive()
-    return armed or running or mounted
+    return running
 end
 
 local function stopCircle()
+    _G.JellSawmillCircleOk = false
     if circleConn then
         circleConn:Disconnect()
         circleConn = nil
@@ -461,6 +492,10 @@ local function stopCircle()
 end
 
 local function ensureCircle()
+    if not running then
+        return
+    end
+    _G.JellSawmillCircleOk = true
     if circleConn then
         return
     end
@@ -471,9 +506,11 @@ local function ensureCircle()
             if conn then
                 conn:Disconnect()
             end
+            _G.JellSawmillCircleOk = false
             clearAura()
             return
         end
+        _G.JellSawmillCircleOk = true
         local rootPart = currentRoot()
         if not rootPart then
             return
@@ -1029,10 +1066,10 @@ function startRun()
         running = false
         restorePermission()
         paintRun()
-        if circleActive() then
+        stopCircle()
+        if mounted then
             refreshHighlights()
         else
-            stopCircle()
             clearHighlights()
             unwatchHighlights()
         end
@@ -1047,11 +1084,10 @@ function stopRun()
     running = false
     restorePermission()
     paintRun()
-    if circleActive() then
-        ensureCircle()
+    stopCircle()
+    if mounted then
         refreshHighlights()
     else
-        stopCircle()
         clearHighlights()
         unwatchHighlights()
     end
@@ -1074,11 +1110,10 @@ function api.stop()
     running = false
     restorePermission()
     paintRun()
+    stopCircle()
     if mounted then
-        ensureCircle()
         refreshHighlights()
     else
-        stopCircle()
         clearHighlights()
         unwatchHighlights()
     end
@@ -1090,7 +1125,6 @@ function api.mount(parent)
     end
     build(parent)
     mounted = true
-    ensureCircle()
     watchHighlights()
     if not running then
         refreshHighlights()

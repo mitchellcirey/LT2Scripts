@@ -81,6 +81,22 @@ local capturingKey = false
 local savedLighting
 local shownId
 
+_G.JellSawmillCircleOk = false
+
+local function clearSawmillRing()
+    if _G.JellSawmillCircleOk then
+        return
+    end
+    local world = Services.Workspace
+    for _, child in ipairs(world:GetChildren()) do
+        if child.Name == "SawmillLoaderAura" or child.Name == "AuraCircle" then
+            child:Destroy()
+        end
+    end
+end
+
+RunService:BindToRenderStep("JellClearSawmillRing", Enum.RenderPriority.Last.Value, clearSawmillRing)
+
 local function uiParents()
     local list = {}
     local ok, hui = pcall(function()
@@ -1096,6 +1112,11 @@ local function shutdown()
     pcall(function()
         RunService:UnbindFromRenderStep(MOVE_STEP)
     end)
+    pcall(function()
+        RunService:UnbindFromRenderStep("JellClearSawmillRing")
+    end)
+    _G.JellSawmillCircleOk = false
+    clearSawmillRing()
     restoreLighting()
     disconnectShared(AFK_CONN)
     disconnectShared(JUMP_CONN)
