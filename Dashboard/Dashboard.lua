@@ -2540,6 +2540,13 @@ end
 
 local slidingOpacity = false
 local sliderHover = false
+local sessionConns = {}
+
+local function trackSession(conn)
+    table.insert(sessionConns, conn)
+    return conn
+end
+
 sliderHit.InputBegan:Connect(function(input)
     if input.UserInputType ~= Enum.UserInputType.MouseButton1 then
         return
@@ -2557,19 +2564,19 @@ sliderHit.MouseLeave:Connect(function()
         sliderTrack.BackgroundColor3 = Theme.BUTTON_BG
     end
 end)
-UserInputService.InputChanged:Connect(function(input)
+trackSession(UserInputService.InputChanged:Connect(function(input)
     if slidingOpacity and input.UserInputType == Enum.UserInputType.MouseMovement then
         opacityFromMouse()
     end
-end)
-UserInputService.InputEnded:Connect(function(input)
+end))
+trackSession(UserInputService.InputEnded:Connect(function(input)
     if input.UserInputType ~= Enum.UserInputType.MouseButton1 or not slidingOpacity then
         return
     end
     slidingOpacity = false
     sliderTrack.BackgroundColor3 = sliderHover and Theme.HOVER_BG or Theme.BUTTON_BG
     saveConfig()
-end)
+end))
 
 local keyHover = false
 
@@ -2696,12 +2703,47 @@ local function shutdown()
         ferryConn:Disconnect()
         ferryConn = nil
     end
+    for _, conn in ipairs(sessionConns) do
+        pcall(function()
+            conn:Disconnect()
+        end)
+    end
+    table.clear(sessionConns)
     screenGui:Destroy()
 end
 
+local reloading = false
+
+titleRule(welcomePage, "Script", 340, 22, 15, Color3.fromRGB(210, 210, 210))
+homeAction("Reload script", "Reload", 370, function()
+    if reloading then
+        return
+    end
+    reloading = true
+    local ok, src = pcall(function()
+        return game:HttpGet(BASE .. "Dashboard/loader.lua?t=" .. tostring(os.time()))
+    end)
+    if not ok or type(src) ~= "string" then
+        reloading = false
+        warn("[Jell] Reload failed: " .. tostring(src))
+        return
+    end
+    local fn, loadErr = loadstring(src, "JellDashboard")
+    if not fn then
+        reloading = false
+        warn("[Jell] Reload failed: " .. tostring(loadErr))
+        return
+    end
+    shutdown()
+    local ran, err = pcall(fn)
+    if not ran then
+        warn("[Jell] Reload failed: " .. tostring(err))
+    end
+end)
+
 closeBtn.MouseButton1Click:Connect(shutdown)
 
-UserInputService.InputBegan:Connect(function(input)
+trackSession(UserInputService.InputBegan:Connect(function(input)
     if input.UserInputType ~= Enum.UserInputType.Keyboard then
         return
     end
@@ -2720,7 +2762,7 @@ UserInputService.InputBegan:Connect(function(input)
     if input.KeyCode == toggleKey then
         flipWindow()
     end
-end)
+end))
 
 local introTween = Services.TweenService:Create(
     window,
@@ -2751,7 +2793,7 @@ do
         end
     end)
 
-    UserInputService.InputChanged:Connect(function(input)
+    trackSession(UserInputService.InputChanged:Connect(function(input)
         if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
             local delta = input.Position - dragStart
             window.Position = UDim2.new(
@@ -2761,5 +2803,5 @@ do
                 startPos.Y.Offset + delta.Y
             )
         end
-    end)
+    end))
 end
