@@ -68,7 +68,7 @@ local sawmillProperties = {
 
 local sawmillOwner = Player.Name
 local woodOwner = Player.Name
-local selectedWood = "Oak"
+local selectedWood = nil
 local selectedSawmill = nil
 
 local armed = false
@@ -309,22 +309,14 @@ local function getPlayerSawmills(player)
 end
 
 local function chosenSawmill(player)
+    if type(selectedSawmill) ~= "string" or selectedSawmill == "" then
+        return nil
+    end
     local mills = getPlayerSawmills(player)
     for _, mill in ipairs(mills) do
         if mill.key == selectedSawmill then
             return mill
         end
-    end
-    if #mills == 1 then
-        if selectedSawmill ~= mills[1].key then
-            selectedSawmill = mills[1].key
-            saveConfig()
-            local label = captions.sawmill
-            if label and label.Parent then
-                label.Text = mills[1].label
-            end
-        end
-        return mills[1]
     end
     return nil
 end
@@ -480,7 +472,7 @@ local function drawAura(centerPosition)
 end
 
 local function circleActive()
-    return running
+    return armed or running
 end
 
 local function stopCircle()
@@ -493,7 +485,7 @@ local function stopCircle()
 end
 
 local function ensureCircle()
-    if not running then
+    if not circleActive() then
         return
     end
     _G.JellSawmillCircleOk = true
@@ -709,6 +701,22 @@ local function paintCaption(key, text)
     end
 end
 
+local function missingChoice()
+    if type(selectedSawmill) ~= "string" or selectedSawmill == "" then
+        return "Please choose Sawmill"
+    end
+    if type(selectedWood) ~= "string" or not woodSet[selectedWood] then
+        return "Please choose wood type"
+    end
+    if type(sawmillOwner) ~= "string" or sawmillOwner == "" then
+        return "Please choose Sawmill"
+    end
+    if type(woodOwner) ~= "string" or woodOwner == "" then
+        return "Please choose wood type"
+    end
+    return nil
+end
+
 local function paintRun()
     if not (runBtn and runBtn.Parent) then
         return
@@ -717,14 +725,27 @@ local function paintRun()
         runBtn.Text = "Stop"
         runBtn.BackgroundColor3 = STOP_RED
         runBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    else
-        runBtn.Text = "Start"
-        runBtn.BackgroundColor3 = START_GREEN
-        runBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        runBtn.Active = true
+        return
     end
+    local missing = missingChoice()
+    if missing then
+        runBtn.Text = missing
+        runBtn.BackgroundColor3 = Color3.fromRGB(48, 48, 48)
+        runBtn.TextColor3 = Color3.fromRGB(140, 140, 140)
+        runBtn.Active = false
+        return
+    end
+    runBtn.Text = "Start"
+    runBtn.BackgroundColor3 = START_GREEN
+    runBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    runBtn.Active = true
 end
 
 local function sawmillCaption()
+    if type(selectedSawmill) ~= "string" or selectedSawmill == "" then
+        return ""
+    end
     local player = findPlayer(sawmillOwner)
     if player then
         for _, mill in ipairs(getPlayerSawmills(player)) do
@@ -732,15 +753,12 @@ local function sawmillCaption()
                 return mill.label
             end
         end
-        return "None"
     end
-    if type(selectedSawmill) == "string" then
-        local name = string.match(selectedSawmill, "^([^|]+)")
-        if name and name ~= "" then
-            return name
-        end
+    local name = string.match(selectedSawmill, "^([^|]+)")
+    if name and name ~= "" then
+        return name
     end
-    return "None"
+    return ""
 end
 
 local function playerLabel(player)
@@ -778,7 +796,7 @@ local function playerOptions()
 end
 
 local function sawmillOptions()
-    local options = {}
+    local options = { { id = "", label = "" } }
     local player = findPlayer(sawmillOwner)
     if not player then
         return options
@@ -790,7 +808,7 @@ local function sawmillOptions()
 end
 
 local function woodOptions()
-    local options = {}
+    local options = { { id = "", label = "" } }
     for _, name in ipairs(WOODS) do
         table.insert(options, { id = name, label = name })
     end
@@ -849,7 +867,8 @@ local function openMenu(button, options, current, onPick)
         rows = { { id = nil, label = "None" } }
     end
     for index, option in ipairs(rows) do
-        local picked = option.id ~= nil and option.id == current
+        local blank = option.id == ""
+        local picked = (blank and (current == nil or current == "")) or (not blank and option.id == current)
         local row = make("TextButton", {
             Size = UDim2.new(1, 0, 0, ROW_H),
             BackgroundColor3 = FIELD,
@@ -858,11 +877,11 @@ local function openMenu(button, options, current, onPick)
             Font = Enum.Font.SourceSans,
             Text = option.label,
             TextSize = 15,
-            TextColor3 = option.id == nil and MUTED or TEXT,
+            TextColor3 = TEXT,
             TextXAlignment = Enum.TextXAlignment.Left,
             AutoButtonColor = false,
             LayoutOrder = index,
-            Active = option.id ~= nil,
+            Active = true,
             ZIndex = 6,
         }, menu)
         make("UIPadding", {
@@ -987,18 +1006,10 @@ local function build(parent)
     }, runBlock)
 
     local function paintFields()
-        if selectedSawmill == nil then
-            local player = findPlayer(sawmillOwner)
-            local mills = player and getPlayerSawmills(player) or {}
-            if #mills == 1 then
-                selectedSawmill = mills[1].key
-                saveConfig()
-            end
-        end
         paintCaption("sawmillOwner", playerCaption(sawmillOwner))
         paintCaption("woodOwner", playerCaption(woodOwner))
         paintCaption("sawmill", sawmillCaption())
-        paintCaption("wood", selectedWood)
+        paintCaption("wood", selectedWood or "")
         paintRun()
         refreshHighlights()
     end
@@ -1007,11 +1018,6 @@ local function build(parent)
         openMenu(sawmillOwnerBtn, playerOptions(), sawmillOwner, function(id)
             sawmillOwner = id
             selectedSawmill = nil
-            local player = findPlayer(id)
-            local mills = player and getPlayerSawmills(player) or {}
-            if mills[1] then
-                selectedSawmill = mills[1].key
-            end
             saveConfig()
             paintFields()
         end)
@@ -1027,7 +1033,7 @@ local function build(parent)
 
     sawmillBtn.MouseButton1Click:Connect(function()
         openMenu(sawmillBtn, sawmillOptions(), selectedSawmill, function(id)
-            selectedSawmill = id
+            selectedSawmill = id ~= "" and id or nil
             saveConfig()
             paintFields()
         end)
@@ -1035,7 +1041,7 @@ local function build(parent)
 
     woodBtn.MouseButton1Click:Connect(function()
         openMenu(woodBtn, woodOptions(), selectedWood, function(id)
-            selectedWood = id
+            selectedWood = id ~= "" and id or nil
             saveConfig()
             paintFields()
         end)
@@ -1045,9 +1051,13 @@ local function build(parent)
         closeMenu()
         if running then
             stopRun()
-        else
-            startRun()
+            return
         end
+        if missingChoice() then
+            paintRun()
+            return
+        end
+        startRun()
     end)
 
     paintFields()
@@ -1056,7 +1066,8 @@ end
 local api = {}
 
 function startRun()
-    if running then
+    if running or missingChoice() then
+        paintRun()
         return
     end
     running = true
@@ -1075,10 +1086,13 @@ function startRun()
         running = false
         restorePermission()
         paintRun()
-        stopCircle()
-        if armed and mounted then
-            refreshHighlights()
+        if armed then
+            ensureCircle()
+            if mounted then
+                refreshHighlights()
+            end
         else
+            stopCircle()
             clearHighlights()
             unwatchHighlights()
         end
@@ -1093,10 +1107,13 @@ function stopRun()
     running = false
     restorePermission()
     paintRun()
-    stopCircle()
-    if armed and mounted then
-        refreshHighlights()
+    if armed then
+        ensureCircle()
+        if mounted then
+            refreshHighlights()
+        end
     else
+        stopCircle()
         clearHighlights()
         unwatchHighlights()
     end
@@ -1104,11 +1121,11 @@ end
 
 function api.start()
     armed = true
-    if not mounted or running then
-        return
+    ensureCircle()
+    if mounted and not running then
+        watchHighlights()
+        refreshHighlights()
     end
-    watchHighlights()
-    refreshHighlights()
     paintRun()
 end
 
