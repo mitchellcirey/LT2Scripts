@@ -420,9 +420,33 @@ local window = make("CanvasGroup", {
     GroupTransparency = 1,
 }, screenGui)
 
-local titleBar = make("Frame", {
+make("TextButton", {
+    Name = "Blocker",
+    Size = UDim2.fromScale(1, 1),
+    BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+    Text = "",
+    AutoButtonColor = false,
+    Selectable = false,
+    Active = true,
+    ZIndex = 0,
+}, window)
+
+window.DescendantAdded:Connect(function(object)
+    if object:IsA("ScrollingFrame") and object.BackgroundTransparency >= 1 then
+        object.Active = true
+        -- A fully clear frame is not a click target, so the wheel would land on the blocker.
+        object.BackgroundTransparency = 0.999
+    end
+end)
+
+local titleBar = make("TextButton", {
     Size = UDim2.new(1, 0, 0, 28),
     BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+    Text = "",
+    AutoButtonColor = false,
+    Selectable = false,
     Active = true,
 }, window)
 
