@@ -359,9 +359,6 @@ local function sortedSize(size)
 end
 
 local function singleSection(log)
-    if log:FindFirstChild("InnerWood", true) then
-        return nil
-    end
     local section = nil
     for _, desc in ipairs(log:GetDescendants()) do
         if desc.Name == "Tree Weld" then
