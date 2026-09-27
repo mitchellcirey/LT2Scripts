@@ -63,41 +63,45 @@ local SCRIPTS = {
     },
 }
 
-local GUI_NAME = "JellDashboard"
-local CLICK_ACTION = "JellDashboardClickTp"
-local TOGGLE_ACTION = "JellDashboardToggle"
-local LIGHTING_STEP = "JellDashboardLighting"
-local HOVER_STEP = "JellDashboardHover"
-local MOVE_STEP = "JellDashboardShiftWalk"
-local AFK_CONN = "JellDashboardAfk"
-local JUMP_CONN = "JellDashboardJump"
-local NOCLIP_CONN = "JellDashboardNoclip"
-local NOCLIP_WATCH = "JellDashboardNoclipWatch"
-local HOVER_CONN = "JellDashboardHoverConn"
-local HOVER_MOVE_CONN = "JellDashboardHoverMove"
-local SHIFT_BEGAN = "JellDashboardShiftBegan"
-local SHIFT_STEP = "JellDashboardShiftStep"
-local LIGHTING_CONNS = "JellDashboardLightingConns"
-local SAWMILL_CONNS = "JellDashboardSawmillConns"
-local JANITOR_GEN = "JellDashboardJanitorGen"
+local ID = {
+    GUI_NAME = "JellDashboard",
+    CLICK_ACTION = "JellDashboardClickTp",
+    TOGGLE_ACTION = "JellDashboardToggle",
+    LIGHTING_STEP = "JellDashboardLighting",
+    HOVER_STEP = "JellDashboardHover",
+    MOVE_STEP = "JellDashboardShiftWalk",
+    AFK_CONN = "JellDashboardAfk",
+    JUMP_CONN = "JellDashboardJump",
+    NOCLIP_CONN = "JellDashboardNoclip",
+    NOCLIP_WATCH = "JellDashboardNoclipWatch",
+    HOVER_CONN = "JellDashboardHoverConn",
+    HOVER_MOVE_CONN = "JellDashboardHoverMove",
+    SHIFT_BEGAN = "JellDashboardShiftBegan",
+    SHIFT_STEP = "JellDashboardShiftStep",
+    LIGHTING_CONNS = "JellDashboardLightingConns",
+    SAWMILL_CONNS = "JellDashboardSawmillConns",
+    JANITOR_GEN = "JellDashboardJanitorGen",
+}
 
-local RED = Color3.fromRGB(210, 70, 70)
-local GREEN = Color3.fromRGB(70, 190, 105)
-local SIDEBAR = Color3.fromRGB(14, 14, 14)
-local ROW = Color3.fromRGB(32, 32, 32)
-local TEXT = Color3.fromRGB(230, 230, 230)
-local MUTED = Color3.fromRGB(160, 160, 160)
-local TOGGLE_OFF = Color3.fromRGB(58, 58, 58)
-local BUTTON_BG = Color3.fromRGB(58, 58, 58)
-local HOVER_BG = Color3.fromRGB(96, 96, 96)
-local WINDOW_W = 640
-local WINDOW_H = 480
-local WINDOW_EDGE = 16
-local TOGGLE_W = 28
-local TOGGLE_H = 14
-local TOGGLE_KNOB = 10
-local TOGGLE_PAD = 2
-local TOGGLE_TWEEN = TweenInfo.new(0.2)
+local Theme = {
+    RED = Color3.fromRGB(210, 70, 70),
+    GREEN = Color3.fromRGB(70, 190, 105),
+    SIDEBAR = Color3.fromRGB(14, 14, 14),
+    ROW = Color3.fromRGB(32, 32, 32),
+    TEXT = Color3.fromRGB(230, 230, 230),
+    MUTED = Color3.fromRGB(160, 160, 160),
+    TOGGLE_OFF = Color3.fromRGB(58, 58, 58),
+    BUTTON_BG = Color3.fromRGB(58, 58, 58),
+    HOVER_BG = Color3.fromRGB(96, 96, 96),
+    WINDOW_W = 640,
+    WINDOW_H = 480,
+    WINDOW_EDGE = 16,
+    TOGGLE_W = 28,
+    TOGGLE_H = 14,
+    TOGGLE_KNOB = 10,
+    TOGGLE_PAD = 2,
+    TOGGLE_TWEEN = TweenInfo.new(0.2),
+}
 
 local settings = {
     ctrlClick = true,
@@ -280,9 +284,9 @@ local function bindSawmillJanitor()
     pcall(function()
         RunService:UnbindFromRenderStep("JellClearSawmillRing")
     end)
-    dropConnList(SAWMILL_CONNS)
-    shared[JANITOR_GEN] = (tonumber(shared[JANITOR_GEN]) or 0) + 1
-    local generation = shared[JANITOR_GEN]
+    dropConnList(ID.SAWMILL_CONNS)
+    shared[ID.JANITOR_GEN] = (tonumber(shared[ID.JANITOR_GEN]) or 0) + 1
+    local generation = shared[ID.JANITOR_GEN]
     local sawmillConns = {}
     local hooked = {}
     local function hookFolder(folder)
@@ -312,12 +316,12 @@ local function bindSawmillJanitor()
             hookFolder(folder)
         end
     end
-    shared[SAWMILL_CONNS] = sawmillConns
+    shared[ID.SAWMILL_CONNS] = sawmillConns
     task.spawn(function()
         local highlightOk = _G.JellSawmillHighlightOk == true
-        while shared[JANITOR_GEN] == generation and not dashboardClosed do
+        while shared[ID.JANITOR_GEN] == generation and not dashboardClosed do
             task.wait(1)
-            if shared[JANITOR_GEN] ~= generation or dashboardClosed then
+            if shared[ID.JANITOR_GEN] ~= generation or dashboardClosed then
                 return
             end
             if not _G.JellSawmillCircleOk then
@@ -556,9 +560,9 @@ end
 
 local function disconnectLighting()
     lightingGeneration += 1
-    dropConnList(LIGHTING_CONNS)
+    dropConnList(ID.LIGHTING_CONNS)
     pcall(function()
-        RunService:UnbindFromRenderStep(LIGHTING_STEP)
+        RunService:UnbindFromRenderStep(ID.LIGHTING_STEP)
     end)
 end
 
@@ -651,7 +655,7 @@ local function bindLighting()
             bindLighting()
         end)
     end))
-    shared[LIGHTING_CONNS] = conns
+    shared[ID.LIGHTING_CONNS] = conns
 end
 
 local function restoreLighting()
@@ -664,7 +668,7 @@ local function restoreLighting()
 end
 
 for _, parent in ipairs(uiParents()) do
-    for _, name in ipairs({ GUI_NAME, "LT2DuperUI" }) do
+    for _, name in ipairs({ ID.GUI_NAME, "LT2DuperUI" }) do
         local existing = parent:FindFirstChild(name)
         if existing then
             existing:Destroy()
@@ -673,13 +677,13 @@ for _, parent in ipairs(uiParents()) do
 end
 
 pcall(function()
-    RunService:UnbindFromRenderStep(LIGHTING_STEP)
+    RunService:UnbindFromRenderStep(ID.LIGHTING_STEP)
 end)
 pcall(function()
-    RunService:UnbindFromRenderStep(HOVER_STEP)
+    RunService:UnbindFromRenderStep(ID.HOVER_STEP)
 end)
 pcall(function()
-    RunService:UnbindFromRenderStep(MOVE_STEP)
+    RunService:UnbindFromRenderStep(ID.MOVE_STEP)
 end)
 pcall(function()
     RunService:UnbindFromRenderStep("JellClearSawmillRing")
@@ -687,7 +691,7 @@ end)
 pcall(function()
     RunService:UnbindFromRenderStep("LT2DuperLighting")
 end)
-ContextActionService:UnbindAction(CLICK_ACTION)
+ContextActionService:UnbindAction(ID.CLICK_ACTION)
 ContextActionService:UnbindAction("LT2DuperClickTp")
 
 captureLighting()
@@ -699,7 +703,7 @@ end
 
 local uiParent = getUiParent()
 local screenGui = make("ScreenGui", {
-    Name = GUI_NAME,
+    Name = ID.GUI_NAME,
     ResetOnSpawn = false,
     ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
     DisplayOrder = 999,
@@ -707,8 +711,8 @@ local screenGui = make("ScreenGui", {
 
 local window = make("Frame", {
     Name = "Window",
-    Size = UDim2.fromOffset(WINDOW_W, WINDOW_H),
-    Position = UDim2.new(1, -(WINDOW_W + WINDOW_EDGE), 1, -(WINDOW_H + WINDOW_EDGE - 12)),
+    Size = UDim2.fromOffset(Theme.WINDOW_W, Theme.WINDOW_H),
+    Position = UDim2.new(1, -(Theme.WINDOW_W + Theme.WINDOW_EDGE), 1, -(Theme.WINDOW_H + Theme.WINDOW_EDGE - 12)),
     BackgroundColor3 = Color3.fromRGB(18, 18, 18),
     BackgroundTransparency = 1 - (backgroundOpacity / 100),
     BorderSizePixel = 0,
@@ -760,7 +764,7 @@ make("TextLabel", {
     Font = Enum.Font.GothamBold,
     Text = "JELL'S LT2 DASHBOARD",
     TextSize = 16,
-    TextColor3 = TEXT,
+    TextColor3 = Theme.TEXT,
     TextXAlignment = Enum.TextXAlignment.Left,
 }, titleBar)
 
@@ -768,7 +772,7 @@ local function bindHover(button)
     local baseColor = button.BackgroundColor3
     local baseTransparency = button.BackgroundTransparency
     button.MouseEnter:Connect(function()
-        button.BackgroundColor3 = HOVER_BG
+        button.BackgroundColor3 = Theme.HOVER_BG
         button.BackgroundTransparency = 0
     end)
     button.MouseLeave:Connect(function()
@@ -778,7 +782,7 @@ local function bindHover(button)
 end
 
 local function switchColor(on, hovering)
-    local color = on and GREEN or TOGGLE_OFF
+    local color = on and Theme.GREEN or Theme.TOGGLE_OFF
     if hovering then
         return color:Lerp(Color3.new(1, 1, 1), 0.35)
     end
@@ -792,7 +796,7 @@ local closeBtn = make("TextButton", {
     Font = Enum.Font.SourceSans,
     Text = "x",
     TextSize = 16,
-    TextColor3 = MUTED,
+    TextColor3 = Theme.MUTED,
     AutoButtonColor = false,
 }, titleBar)
 bindHover(closeBtn)
@@ -805,7 +809,7 @@ local body = make("Frame", {
 
 local sidebar = make("Frame", {
     Size = UDim2.new(0, 200, 1, 0),
-    BackgroundColor3 = SIDEBAR,
+    BackgroundColor3 = Theme.SIDEBAR,
     BackgroundTransparency = 1 - (backgroundOpacity / 100),
     BorderSizePixel = 0,
 }, body)
@@ -911,7 +915,7 @@ local function titleRule(parent, text, y, height, textSize, color, order)
     task.defer(place)
 end
 
-titleRule(welcomePage, "Welcome", 0, 28, 22, TEXT)
+titleRule(welcomePage, "Welcome", 0, 28, 22, Theme.TEXT)
 
 make("TextLabel", {
     Size = UDim2.new(1, 0, 0, 22),
@@ -936,7 +940,7 @@ local githubBox = make("TextBox", {
     Font = Enum.Font.SourceSans,
     Text = "https://github.com/mitchellcirey/LT2Scripts",
     TextSize = 15,
-    TextColor3 = TEXT,
+    TextColor3 = Theme.TEXT,
     TextXAlignment = Enum.TextXAlignment.Left,
 }, welcomePage)
 make("UIPadding", {
@@ -1033,12 +1037,12 @@ local function homeAction(labelText, buttonText, y, action)
     local button = make("TextButton", {
         Size = UDim2.fromOffset(88, 22),
         Position = UDim2.new(1, -88, 0, y),
-        BackgroundColor3 = BUTTON_BG,
+        BackgroundColor3 = Theme.BUTTON_BG,
         BorderSizePixel = 0,
         Font = Enum.Font.SourceSans,
         Text = buttonText,
         TextSize = 15,
-        TextColor3 = TEXT,
+        TextColor3 = Theme.TEXT,
         AutoButtonColor = false,
     }, welcomePage)
     bindHover(button)
@@ -1059,7 +1063,7 @@ end)
 local homeBtn = make("TextButton", {
     Size = UDim2.new(1, -16, 0, 24),
     Position = UDim2.fromOffset(8, 8),
-    BackgroundColor3 = BUTTON_BG,
+    BackgroundColor3 = Theme.BUTTON_BG,
     BorderSizePixel = 0,
     Font = Enum.Font.SourceSansBold,
     Text = "Home",
@@ -1072,7 +1076,7 @@ bindHover(homeBtn)
 local settingsBtn = make("TextButton", {
     Size = UDim2.new(1, -16, 0, 24),
     Position = UDim2.fromOffset(8, 40),
-    BackgroundColor3 = BUTTON_BG,
+    BackgroundColor3 = Theme.BUTTON_BG,
     BorderSizePixel = 0,
     Font = Enum.Font.SourceSans,
     Text = "Settings",
@@ -1114,7 +1118,7 @@ local function groupButton(text, order)
         Font = Enum.Font.GothamBold,
         Text = string.upper(text),
         TextSize = 15,
-        TextColor3 = TEXT,
+        TextColor3 = Theme.TEXT,
         TextXAlignment = Enum.TextXAlignment.Left,
         AutoButtonColor = false,
         LayoutOrder = order,
@@ -1126,7 +1130,7 @@ local function groupButton(text, order)
         Font = Enum.Font.SourceSans,
         Text = "v",
         TextSize = 14,
-        TextColor3 = MUTED,
+        TextColor3 = Theme.MUTED,
     }, button)
     bindHover(button)
     return button, chevron
@@ -1516,10 +1520,10 @@ local function refreshHover()
     end
 end
 
-dropConn(HOVER_CONN)
-dropConn(HOVER_MOVE_CONN)
+dropConn(ID.HOVER_CONN)
+dropConn(ID.HOVER_MOVE_CONN)
 local hoverAccum = 0
-shared[HOVER_CONN] = RunService.Heartbeat:Connect(function(dt)
+shared[ID.HOVER_CONN] = RunService.Heartbeat:Connect(function(dt)
     hoverAccum += dt
     if hoverAccum < 0.05 then
         return
@@ -1527,7 +1531,7 @@ shared[HOVER_CONN] = RunService.Heartbeat:Connect(function(dt)
     hoverAccum = 0
     refreshHover()
 end)
-shared[HOVER_MOVE_CONN] = UserInputService.InputChanged:Connect(function(input)
+shared[ID.HOVER_MOVE_CONN] = UserInputService.InputChanged:Connect(function(input)
     if input.UserInputType ~= Enum.UserInputType.MouseMovement or not hoverHint.Visible then
         return
     end
@@ -1563,12 +1567,12 @@ local function onClickTeleport(_, state)
 end
 
 local function bindCtrl()
-    ContextActionService:UnbindAction(CLICK_ACTION)
+    ContextActionService:UnbindAction(ID.CLICK_ACTION)
     if not settings.ctrlClick then
         return
     end
     ContextActionService:BindActionAtPriority(
-        CLICK_ACTION,
+        ID.CLICK_ACTION,
         onClickTeleport,
         false,
         Enum.ContextActionPriority.High.Value + 1,
@@ -1613,14 +1617,14 @@ local function holdShiftWalk()
 end
 
 local function stopShiftStep()
-    dropConn(SHIFT_STEP)
+    dropConn(ID.SHIFT_STEP)
 end
 
 local function startShiftStep()
-    if shared[SHIFT_STEP] or not settings.disableShiftWalk then
+    if shared[ID.SHIFT_STEP] or not settings.disableShiftWalk then
         return
     end
-    shared[SHIFT_STEP] = RunService.Stepped:Connect(function()
+    shared[ID.SHIFT_STEP] = RunService.Stepped:Connect(function()
         if not settings.disableShiftWalk then
             stopShiftStep()
             return
@@ -1637,14 +1641,14 @@ end
 
 local function bindShiftWalk()
     pcall(function()
-        RunService:UnbindFromRenderStep(MOVE_STEP)
+        RunService:UnbindFromRenderStep(ID.MOVE_STEP)
     end)
-    dropConn(SHIFT_BEGAN)
+    dropConn(ID.SHIFT_BEGAN)
     stopShiftStep()
     if not settings.disableShiftWalk then
         return
     end
-    shared[SHIFT_BEGAN] = UserInputService.InputBegan:Connect(function(input)
+    shared[ID.SHIFT_BEGAN] = UserInputService.InputBegan:Connect(function(input)
         local key = input.KeyCode
         if key == Enum.KeyCode.LeftShift or key == Enum.KeyCode.RightShift then
             startShiftStep()
@@ -1669,11 +1673,11 @@ local function disconnectShared(key)
 end
 
 local function bindAfk()
-    disconnectShared(AFK_CONN)
+    disconnectShared(ID.AFK_CONN)
     if not settings.preventAfkKick then
         return
     end
-    shared[AFK_CONN] = Player.Idled:Connect(function()
+    shared[ID.AFK_CONN] = Player.Idled:Connect(function()
         if not settings.preventAfkKick then
             return
         end
@@ -1686,11 +1690,11 @@ local function bindAfk()
 end
 
 local function bindJump()
-    disconnectShared(JUMP_CONN)
+    disconnectShared(ID.JUMP_CONN)
     if not settings.infiniteJump then
         return
     end
-    shared[JUMP_CONN] = UserInputService.JumpRequest:Connect(function()
+    shared[ID.JUMP_CONN] = UserInputService.JumpRequest:Connect(function()
         if not settings.infiniteJump then
             return
         end
@@ -1706,7 +1710,7 @@ local noclipParts = {}
 local noclipCharacter
 
 local function releaseNoclipWatch()
-    dropConn(NOCLIP_WATCH)
+    dropConn(ID.NOCLIP_WATCH)
     table.clear(noclipParts)
     noclipCharacter = nil
 end
@@ -1726,7 +1730,7 @@ local function fillNoclip(character)
     for _, part in ipairs(character:GetDescendants()) do
         take(part)
     end
-    shared[NOCLIP_WATCH] = character.DescendantAdded:Connect(function(part)
+    shared[ID.NOCLIP_WATCH] = character.DescendantAdded:Connect(function(part)
         if settings.noClip and part:IsA("BasePart") then
             part.CanCollide = false
             table.insert(noclipParts, part)
@@ -1735,12 +1739,12 @@ local function fillNoclip(character)
 end
 
 local function bindNoclip()
-    disconnectShared(NOCLIP_CONN)
+    disconnectShared(ID.NOCLIP_CONN)
     releaseNoclipWatch()
     if not settings.noClip then
         return
     end
-    shared[NOCLIP_CONN] = RunService.Stepped:Connect(function()
+    shared[ID.NOCLIP_CONN] = RunService.Stepped:Connect(function()
         if not settings.noClip then
             return
         end
@@ -1778,12 +1782,12 @@ local function paintToggle(state)
     end
     state.toggleOn = on
     state.track:SetAttribute("On", on)
-    local knobX = on and (TOGGLE_W - TOGGLE_KNOB - TOGGLE_PAD) or TOGGLE_PAD
+    local knobX = on and (Theme.TOGGLE_W - Theme.TOGGLE_KNOB - Theme.TOGGLE_PAD) or Theme.TOGGLE_PAD
     local hovering = state.track:GetAttribute("Hovering") == true
-    Services.TweenService:Create(state.knob, TOGGLE_TWEEN, {
-        Position = UDim2.fromOffset(knobX, (TOGGLE_H - TOGGLE_KNOB) / 2),
+    Services.TweenService:Create(state.knob, Theme.TOGGLE_TWEEN, {
+        Position = UDim2.fromOffset(knobX, (Theme.TOGGLE_H - Theme.TOGGLE_KNOB) / 2),
     }):Play()
-    Services.TweenService:Create(state.track, TOGGLE_TWEEN, {
+    Services.TweenService:Create(state.track, Theme.TOGGLE_TWEEN, {
         BackgroundColor3 = switchColor(on, hovering),
     }):Play()
 end
@@ -1849,9 +1853,9 @@ local function paint(entry)
     if entry.power == false then
         state.nameBtn.TextColor3 = state.shown and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(210, 210, 210)
     else
-        state.nameBtn.TextColor3 = state.started and GREEN or RED
+        state.nameBtn.TextColor3 = state.started and Theme.GREEN or Theme.RED
     end
-    state.row.BackgroundColor3 = state.shown and ROW or SIDEBAR
+    state.row.BackgroundColor3 = state.shown and Theme.ROW or Theme.SIDEBAR
     paintToggle(state)
     paintLock()
 end
@@ -2017,9 +2021,9 @@ end
 
 local function toggleSwitch(parent)
     local track = make("TextButton", {
-        Size = UDim2.fromOffset(TOGGLE_W, TOGGLE_H),
-        Position = UDim2.new(1, -(TOGGLE_W + 4), 0.5, -TOGGLE_H / 2),
-        BackgroundColor3 = TOGGLE_OFF,
+        Size = UDim2.fromOffset(Theme.TOGGLE_W, Theme.TOGGLE_H),
+        Position = UDim2.new(1, -(Theme.TOGGLE_W + 4), 0.5, -Theme.TOGGLE_H / 2),
+        BackgroundColor3 = Theme.TOGGLE_OFF,
         Text = "",
         AutoButtonColor = false,
     }, parent)
@@ -2032,8 +2036,8 @@ local function toggleSwitch(parent)
         ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
     }, track)
     local knob = make("Frame", {
-        Size = UDim2.fromOffset(TOGGLE_KNOB, TOGGLE_KNOB),
-        Position = UDim2.fromOffset(TOGGLE_PAD, (TOGGLE_H - TOGGLE_KNOB) / 2),
+        Size = UDim2.fromOffset(Theme.TOGGLE_KNOB, Theme.TOGGLE_KNOB),
+        Position = UDim2.fromOffset(Theme.TOGGLE_PAD, (Theme.TOGGLE_H - Theme.TOGGLE_KNOB) / 2),
         BackgroundColor3 = Color3.fromRGB(255, 255, 255),
         BorderSizePixel = 0,
     }, track)
@@ -2054,12 +2058,12 @@ end
 
 local function paintSwitch(track, knob, on)
     track:SetAttribute("On", on)
-    local knobX = on and (TOGGLE_W - TOGGLE_KNOB - TOGGLE_PAD) or TOGGLE_PAD
+    local knobX = on and (Theme.TOGGLE_W - Theme.TOGGLE_KNOB - Theme.TOGGLE_PAD) or Theme.TOGGLE_PAD
     local hovering = track:GetAttribute("Hovering") == true
-    Services.TweenService:Create(knob, TOGGLE_TWEEN, {
-        Position = UDim2.fromOffset(knobX, (TOGGLE_H - TOGGLE_KNOB) / 2),
+    Services.TweenService:Create(knob, Theme.TOGGLE_TWEEN, {
+        Position = UDim2.fromOffset(knobX, (Theme.TOGGLE_H - Theme.TOGGLE_KNOB) / 2),
     }):Play()
-    Services.TweenService:Create(track, TOGGLE_TWEEN, {
+    Services.TweenService:Create(track, Theme.TOGGLE_TWEEN, {
         BackgroundColor3 = switchColor(on, hovering),
     }):Play()
 end
@@ -2093,12 +2097,12 @@ for index, entry in ipairs(SCRIPTS) do
 
     local showPower = entry.power ~= false
     local nameBtn = make("TextButton", {
-        Size = showPower and UDim2.new(1, -(TOGGLE_W + 8), 1, 0) or UDim2.fromScale(1, 1),
+        Size = showPower and UDim2.new(1, -(Theme.TOGGLE_W + 8), 1, 0) or UDim2.fromScale(1, 1),
         BackgroundTransparency = 1,
         Font = Enum.Font.SourceSans,
         Text = entry.name,
         TextSize = 15,
-        TextColor3 = showPower and RED or Color3.fromRGB(210, 210, 210),
+        TextColor3 = showPower and Theme.RED or Color3.fromRGB(210, 210, 210),
         TextXAlignment = Enum.TextXAlignment.Left,
         TextTruncate = Enum.TextTruncate.AtEnd,
         AutoButtonColor = false,
@@ -2153,8 +2157,8 @@ local function toggleRow(labelText, key, order)
     }, row)
     local track, knob = toggleSwitch(row)
     local on = settings[key] == true
-    local knobX = on and (TOGGLE_W - TOGGLE_KNOB - TOGGLE_PAD) or TOGGLE_PAD
-    knob.Position = UDim2.fromOffset(knobX, (TOGGLE_H - TOGGLE_KNOB) / 2)
+    local knobX = on and (Theme.TOGGLE_W - Theme.TOGGLE_KNOB - Theme.TOGGLE_PAD) or Theme.TOGGLE_PAD
+    knob.Position = UDim2.fromOffset(knobX, (Theme.TOGGLE_H - Theme.TOGGLE_KNOB) / 2)
     track:SetAttribute("On", on)
     track.BackgroundColor3 = switchColor(on, false)
 
@@ -2236,12 +2240,12 @@ make("TextLabel", {
 local keyBtn = make("TextButton", {
     Size = UDim2.fromOffset(88, 22),
     Position = UDim2.new(1, -88, 0, 0),
-    BackgroundColor3 = BUTTON_BG,
+    BackgroundColor3 = Theme.BUTTON_BG,
     BorderSizePixel = 0,
     Font = Enum.Font.SourceSans,
     Text = toggleKey.Name,
     TextSize = 15,
-    TextColor3 = TEXT,
+    TextColor3 = Theme.TEXT,
     AutoButtonColor = false,
 }, keyRow)
 
@@ -2266,7 +2270,7 @@ local opacityValue = make("TextLabel", {
     Font = Enum.Font.SourceSans,
     Text = tostring(backgroundOpacity),
     TextSize = 15,
-    TextColor3 = TEXT,
+    TextColor3 = Theme.TEXT,
     TextXAlignment = Enum.TextXAlignment.Right,
 }, opacityRow)
 local sliderHit = make("TextButton", {
@@ -2279,7 +2283,7 @@ local sliderHit = make("TextButton", {
 local sliderTrack = make("Frame", {
     Size = UDim2.new(1, 0, 0, 4),
     Position = UDim2.new(0, 0, 0.5, -2),
-    BackgroundColor3 = BUTTON_BG,
+    BackgroundColor3 = Theme.BUTTON_BG,
     BorderSizePixel = 0,
 }, sliderHit)
 local sliderFill = make("Frame", {
@@ -2320,12 +2324,12 @@ sliderHit.InputBegan:Connect(function(input)
 end)
 sliderHit.MouseEnter:Connect(function()
     sliderHover = true
-    sliderTrack.BackgroundColor3 = HOVER_BG
+    sliderTrack.BackgroundColor3 = Theme.HOVER_BG
 end)
 sliderHit.MouseLeave:Connect(function()
     sliderHover = false
     if not slidingOpacity then
-        sliderTrack.BackgroundColor3 = BUTTON_BG
+        sliderTrack.BackgroundColor3 = Theme.BUTTON_BG
     end
 end)
 UserInputService.InputChanged:Connect(function(input)
@@ -2338,7 +2342,7 @@ UserInputService.InputEnded:Connect(function(input)
         return
     end
     slidingOpacity = false
-    sliderTrack.BackgroundColor3 = sliderHover and HOVER_BG or BUTTON_BG
+    sliderTrack.BackgroundColor3 = sliderHover and Theme.HOVER_BG or Theme.BUTTON_BG
     saveConfig()
 end)
 
@@ -2350,8 +2354,8 @@ local function paintKeyButton()
         keyBtn.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
         keyBtn.TextColor3 = Color3.fromRGB(18, 18, 18)
     else
-        keyBtn.BackgroundColor3 = keyHover and HOVER_BG or BUTTON_BG
-        keyBtn.TextColor3 = TEXT
+        keyBtn.BackgroundColor3 = keyHover and Theme.HOVER_BG or Theme.BUTTON_BG
+        keyBtn.TextColor3 = Theme.TEXT
     end
 end
 
@@ -2381,12 +2385,12 @@ local function flipWindow()
 end
 
 local function bindToggleKey()
-    ContextActionService:UnbindAction(TOGGLE_ACTION)
+    ContextActionService:UnbindAction(ID.TOGGLE_ACTION)
     if capturingKey then
         return
     end
     ContextActionService:BindActionAtPriority(
-        TOGGLE_ACTION,
+        ID.TOGGLE_ACTION,
         function(_, state)
             if state ~= Enum.UserInputState.Begin then
                 return Enum.ContextActionResult.Pass
@@ -2436,19 +2440,19 @@ local function shutdown()
             end)
         end
     end
-    ContextActionService:UnbindAction(CLICK_ACTION)
-    ContextActionService:UnbindAction(TOGGLE_ACTION)
+    ContextActionService:UnbindAction(ID.CLICK_ACTION)
+    ContextActionService:UnbindAction(ID.TOGGLE_ACTION)
     dashboardClosed = true
-    dropConn(HOVER_CONN)
-    dropConn(HOVER_MOVE_CONN)
-    dropConn(SHIFT_BEGAN)
-    dropConn(SHIFT_STEP)
-    dropConnList(SAWMILL_CONNS)
+    dropConn(ID.HOVER_CONN)
+    dropConn(ID.HOVER_MOVE_CONN)
+    dropConn(ID.SHIFT_BEGAN)
+    dropConn(ID.SHIFT_STEP)
+    dropConnList(ID.SAWMILL_CONNS)
     pcall(function()
-        RunService:UnbindFromRenderStep(MOVE_STEP)
+        RunService:UnbindFromRenderStep(ID.MOVE_STEP)
     end)
     pcall(function()
-        RunService:UnbindFromRenderStep(HOVER_STEP)
+        RunService:UnbindFromRenderStep(ID.HOVER_STEP)
     end)
     pcall(function()
         RunService:UnbindFromRenderStep("JellClearSawmillRing")
@@ -2457,9 +2461,9 @@ local function shutdown()
     _G.JellSawmillHighlightOk = false
     clearSawmillRing()
     restoreLighting()
-    disconnectShared(AFK_CONN)
-    disconnectShared(JUMP_CONN)
-    disconnectShared(NOCLIP_CONN)
+    disconnectShared(ID.AFK_CONN)
+    disconnectShared(ID.JUMP_CONN)
+    disconnectShared(ID.NOCLIP_CONN)
     releaseNoclipWatch()
     screenGui:Destroy()
 end
@@ -2491,7 +2495,7 @@ local introTween = Services.TweenService:Create(
     window,
     TweenInfo.new(0.45, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
     {
-        Position = UDim2.new(1, -(WINDOW_W + WINDOW_EDGE), 1, -(WINDOW_H + WINDOW_EDGE)),
+        Position = UDim2.new(1, -(Theme.WINDOW_W + Theme.WINDOW_EDGE), 1, -(Theme.WINDOW_H + Theme.WINDOW_EDGE)),
     }
 )
 introTween:Play()
