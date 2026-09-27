@@ -243,6 +243,7 @@ local modGen = 0
 
 local started = false
 local mounted = false
+local pageOpen = false
 local session = 0
 local chopping = false
 local chopSession = false
@@ -1326,7 +1327,7 @@ function F.makeMark(name, color, adornee)
     mark.Enabled = false
     if adornee then
         mark.Adornee = adornee
-        mark.Enabled = true
+        mark.Enabled = pageOpen
     end
     local folder = F.marksFolder()
     if folder then
@@ -1341,11 +1342,27 @@ function F.bindMark(mark, adornee)
     end
     if adornee then
         mark.Adornee = adornee
-        mark.Enabled = true
+        mark.Enabled = pageOpen
         return
     end
     mark.Enabled = false
     mark.Adornee = nil
+end
+
+function F.syncMarkVisibility()
+    local function apply(mark)
+        if mark then
+            mark.Enabled = pageOpen and mark.Adornee ~= nil
+        end
+    end
+    apply(sellOutline)
+    apply(cutterOutline)
+    for _, box in pairs(cutterMarks) do
+        apply(box)
+    end
+    for _, mark in ipairs(modMarks) do
+        apply(mark)
+    end
 end
 
 function F.clearSellOutline()
@@ -1569,8 +1586,16 @@ function F.hideCutterOutline()
 end
 
 function F.rebuildPlanes(section)
-    F.clearCutPlanes()
+    for _, entry in ipairs(cutterPlanes) do
+        entry.part:Destroy()
+    end
+    table.clear(cutterPlanes)
     if not section or not section.Parent then
+        cutterTracked = nil
+        return
+    end
+    cutterTracked = section
+    if not pageOpen then
         return
     end
     local heights = F.cutHeights(section)
@@ -3573,6 +3598,21 @@ function api.stop()
     F.closeMenu()
     F.setStatus("Off")
     F.paintAll()
+end
+
+function api.setPageOpen(open)
+    pageOpen = open == true
+    F.syncMarkVisibility()
+    if pageOpen then
+        if cutterTracked and cutterTracked.Parent then
+            F.rebuildPlanes(cutterTracked)
+        end
+        return
+    end
+    for _, entry in ipairs(cutterPlanes) do
+        entry.part:Destroy()
+    end
+    table.clear(cutterPlanes)
 end
 
 function api.mount(parent)

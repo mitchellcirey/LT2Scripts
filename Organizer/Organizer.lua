@@ -72,6 +72,7 @@ local runToken = 0
 local homeCFrame = nil
 local started = false
 local mounted = false
+local pageOpen = false
 local bound = false
 local capturing = nil
 local statusText = "0 selected"
@@ -527,8 +528,22 @@ local function makeHighlight(model)
     hl.FillTransparency = 0.4
     hl.OutlineTransparency = 0
     hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.Enabled = pageOpen
     hl.Parent = ensureOutlineFolder()
     return hl
+end
+
+local function applyHighlightVisibility()
+    for _, hl in pairs(outlines) do
+        if hl then
+            hl.Enabled = pageOpen
+        end
+    end
+    for _, box in ipairs(previewBoxes) do
+        if box then
+            box.Enabled = pageOpen
+        end
+    end
 end
 
 local function refreshBoxes()
@@ -557,6 +572,7 @@ local function refreshBoxes()
             end
         end
     end
+    applyHighlightVisibility()
     paint()
 end
 
@@ -1870,6 +1886,11 @@ function api.stop()
     unbind()
     sweepStrays()
     paint()
+end
+
+function api.setPageOpen(open)
+    pageOpen = open == true
+    applyHighlightVisibility()
 end
 
 function api.mount(parent, ctx)

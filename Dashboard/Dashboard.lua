@@ -1848,6 +1848,24 @@ local function paintLock()
     end
 end
 
+local function pageIsOpen(entry)
+    return window.Visible
+        and shownId == entry.id
+        and scriptHost.Visible
+        and not settingsPage.Visible
+        and not welcomePage.Visible
+end
+
+local function syncPageDrawings()
+    for _, entry in ipairs(SCRIPTS) do
+        local state = states[entry.id]
+        local module = state and state.module
+        if module and type(module.setPageOpen) == "function" then
+            pcall(module.setPageOpen, pageIsOpen(entry))
+        end
+    end
+end
+
 local function paint(entry)
     local state = states[entry.id]
     if entry.power == false then
@@ -1909,6 +1927,7 @@ local function showSettings()
         states[entry.id].shown = false
         paint(entry)
     end
+    syncPageDrawings()
 end
 
 local function showScriptPage(entry)
@@ -1921,6 +1940,9 @@ local function showScriptPage(entry)
     settingsBtn.TextColor3 = Color3.fromRGB(210, 210, 210)
     if shownId and shownId ~= entry.id then
         local prev = states[shownId]
+        if prev.module and type(prev.module.setPageOpen) == "function" then
+            pcall(prev.module.setPageOpen, false)
+        end
         if prev.mounted and prev.module and type(prev.module.unmount) == "function" then
             prev.module.unmount()
         end
@@ -1960,6 +1982,7 @@ local function openScript(entry)
             states[other.id].shown = other.id == entry.id
             paint(other)
         end
+        syncPageDrawings()
     end)
     state.opening = false
     if not ok then
@@ -1977,6 +2000,7 @@ local function openScript(entry)
             paintHome()
         end
         paintLock()
+        syncPageDrawings()
         warn("[Jell] " .. entry.name .. " failed to open: " .. tostring(err))
     end
 end
@@ -2014,6 +2038,7 @@ local function togglePower(entry)
         paint(entry)
     end)
     state.powering = false
+    syncPageDrawings()
     if not ok then
         warn("[Jell] " .. entry.name .. " failed to start: " .. tostring(err))
     end
@@ -2081,6 +2106,7 @@ local function showHome()
         states[entry.id].shown = false
         paint(entry)
     end
+    syncPageDrawings()
 end
 
 homeBtn.MouseButton1Click:Connect(showHome)
@@ -2382,6 +2408,7 @@ local function flipWindow()
     if window.Parent then
         window.Visible = not window.Visible
     end
+    syncPageDrawings()
 end
 
 local function bindToggleKey()

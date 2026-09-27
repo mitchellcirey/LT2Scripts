@@ -76,6 +76,7 @@ local armed = false
 local running = false
 local session = 0
 local mounted = false
+local pageOpen = false
 local permissionPlayer = nil
 local originalInteract = nil
 local auraFolder = nil
@@ -511,7 +512,7 @@ local function drawAura(centerPosition)
 end
 
 local function circleActive()
-    return armed or running
+    return pageOpen and (armed or running)
 end
 
 local function stopCircle()
@@ -635,6 +636,10 @@ local function addMark(model, color)
 end
 
 local function refreshHighlights()
+    if not pageOpen then
+        clearHighlights()
+        return
+    end
     clearHighlights()
     if not armed or running or type(selectedWood) ~= "string" or not woodSet[selectedWood] then
         if armed and not running and type(selectedSawmill) == "string" and selectedSawmill ~= "" then
@@ -1238,6 +1243,22 @@ function api.mount(parent)
     end
     watchHighlights()
     if not running then
+        refreshHighlights()
+    end
+end
+
+function api.setPageOpen(open)
+    pageOpen = open == true
+    if not pageOpen then
+        stopCircle()
+        clearHighlights()
+        return
+    end
+    if armed or running then
+        ensureCircle()
+    end
+    if armed and not running then
+        watchHighlights()
         refreshHighlights()
     end
 end

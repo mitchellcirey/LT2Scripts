@@ -43,6 +43,7 @@ local outlineWatch
 
 local started = false
 local mounted = false
+local pageOpen = false
 local dashWindow
 local teardownUi = function() end
 local bindClickSelect = function() end
@@ -975,7 +976,7 @@ local function dropOutline(model)
 end
 
 local function syncOutlines()
-    if not started then
+    if not started or not pageOpen then
         local pending = {}
         for model in pairs(outlines) do
             table.insert(pending, model)
@@ -2103,6 +2104,11 @@ function api.stop()
     for _, model in ipairs(pending) do
         dropOutline(model)
     end
+end
+
+function api.setPageOpen(open)
+    pageOpen = open == true
+    syncOutlines()
 end
 
 function api.mount(parent, ctx)
