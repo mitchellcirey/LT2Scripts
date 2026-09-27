@@ -343,23 +343,10 @@ local function clearOutlines()
     end
 end
 
-local function dropFrom(list, part)
-    for index, entry in ipairs(list) do
-        if entry.part == part then
-            table.remove(list, index)
-            return
-        end
-    end
-end
-
-local function dropPlank(part)
-    dropFrom(filteredPlanks, part)
-    dropFrom(allPlanks, part)
-    dropFrom(chosen, part)
-    if #chosen == 0 then
-        plankIndex = 1
-    else
-        plankIndex = math.clamp(plankIndex, 1, #chosen)
+local function dropBlueprint(model)
+    local index = table.find(chosen, model)
+    if index then
+        table.remove(chosen, index)
     end
     paintCount()
 end
@@ -373,21 +360,20 @@ local function drawOutlines()
     outlineFolder = make("Folder", {
         Name = OUTLINE_NAME,
     })
-    for _, entry in ipairs(chosen) do
-        if entry.part and entry.part.Parent then
+    for _, model in ipairs(chosen) do
+        if model and model.Parent then
             local box = make("SelectionBox", {
-                Adornee = entry.part,
+                Adornee = model,
                 Color3 = OUTLINE,
                 LineThickness = 0.03,
                 SurfaceColor3 = OUTLINE,
                 SurfaceTransparency = 0.75,
             }, outlineFolder)
-            local part = entry.part
-            table.insert(outlineConns, part.Destroying:Connect(function()
+            table.insert(outlineConns, model.Destroying:Connect(function()
                 if box.Parent then
                     box:Destroy()
                 end
-                dropPlank(part)
+                dropBlueprint(model)
             end))
         end
     end
@@ -396,28 +382,17 @@ local function drawOutlines()
 end
 
 local function refilter()
-    local allowed = {}
     filteredPlanks = {}
     for _, entry in ipairs(allPlanks) do
         if entry.sizeY >= filterMin and entry.sizeY <= filterMax then
             table.insert(filteredPlanks, entry)
-            allowed[entry.part] = entry
         end
     end
-    local keep = {}
-    for _, entry in ipairs(chosen) do
-        local fresh = entry.part and allowed[entry.part]
-        if fresh then
-            table.insert(keep, fresh)
-        end
-    end
-    chosen = keep
-    if #chosen == 0 then
+    if #filteredPlanks == 0 then
         plankIndex = 1
     else
-        plankIndex = math.clamp(plankIndex, 1, #chosen)
+        plankIndex = math.clamp(plankIndex, 1, #filteredPlanks)
     end
-    drawOutlines()
 end
 
 local function plankClasses()
@@ -443,7 +418,6 @@ end
 local function chooseClass(className)
     selectedClass = className
     allPlanks = scanPlanks(className)
-    chosen = {}
     local yMin, yMax = 0, 0
     if #allPlanks > 0 then
         yMin, yMax = math.huge, -math.huge
@@ -631,66 +605,50 @@ local function teleportObject(part, goalCF, returnHome)
     return true
 end
 
-local function toggleChosen(entry)
-    for index, item in ipairs(chosen) do
-        if item.part == entry.part then
-            table.remove(chosen, index)
-            return
-        end
+local function itemName(model)
+    local named = model:FindFirstChild("ItemName")
+    if named and tostring(named.Value) ~= "" then
+        return tostring(named.Value)
     end
-    table.insert(chosen, entry)
+    return model.Name
 end
 
-local function entryFromTarget(target)
+local function toggleBlueprint(model)
+    local index = table.find(chosen, model)
+    if index then
+        table.remove(chosen, index)
+        return
+    end
+    table.insert(chosen, model)
+end
+
+local function blueprintFromTarget(target)
     local model = resolveModel(target)
-    if not model or model.Name ~= "Plank" or not isOwned(model) or not selectedClass then
-        return nil
-    end
-    local treeClass = model:FindFirstChild("TreeClass")
-    if not treeClass or treeClass.Value ~= selectedClass then
-        return nil
-    end
-    for _, entry in ipairs(filteredPlanks) do
-        if entry.model == model then
-            return entry
-        end
+    if isBlueprint(model) then
+        return model
     end
     return nil
 end
 
 local function selectClick()
-    if not selectedClass then
-        warn("[Jell] BP Filla: Select a plank type")
+    local model = blueprintFromTarget(Mouse.Target)
+    if not model then
         return
     end
-    allPlanks = scanPlanks(selectedClass)
-    refilter()
-    local entry = entryFromTarget(Mouse.Target)
-    if not entry then
-        return
-    end
-    toggleChosen(entry)
-    if #chosen == 0 then
-        plankIndex = 1
-    end
+    toggleBlueprint(model)
     drawOutlines()
 end
 
 local function selectGroup()
-    if not selectedClass then
-        warn("[Jell] BP Filla: Select a plank type")
+    local model = blueprintFromTarget(Mouse.Target)
+    if not model then
         return
     end
-    allPlanks = scanPlanks(selectedClass)
-    refilter()
-    if not entryFromTarget(Mouse.Target) then
-        return
-    end
-    for _, entry in ipairs(filteredPlanks) do
-        toggleChosen(entry)
-    end
-    if #chosen == 0 then
-        plankIndex = 1
+    local name = itemName(model)
+    for _, blueprint in ipairs(ownedBlueprints()) do
+        if itemName(blueprint) == name then
+            toggleBlueprint(blueprint)
+        end
     end
     drawOutlines()
 end
@@ -746,10 +704,7 @@ local function updateLasso(currentPos)
 end
 
 local function selectLasso(startPos, endPos)
-    if not startPos or not endPos or not selectedClass then
-        if not selectedClass then
-            warn("[Jell] BP Filla: Select a plank type")
-        end
+    if not startPos or not endPos then
         return
     end
     local minX = math.min(startPos.X, endPos.X)
@@ -759,35 +714,28 @@ local function selectLasso(startPos, endPos)
     if (maxX - minX) < 6 or (maxY - minY) < 6 then
         return
     end
-    allPlanks = scanPlanks(selectedClass)
-    refilter()
     local cam = Workspace.CurrentCamera
     if not cam then
         return
     end
     local inset = Services.GuiService:GetGuiInset()
-    for _, entry in ipairs(filteredPlanks) do
-        if entry.part and entry.part.Parent then
-            local screenPos, onScreen = cam:WorldToScreenPoint(entry.part.Position)
-            local sx = screenPos.X + inset.X
-            local sy = screenPos.Y + inset.Y
-            if onScreen and screenPos.Z > 0 and sx >= minX and sx <= maxX and sy >= minY and sy <= maxY then
-                toggleChosen(entry)
-            end
+    for _, model in ipairs(ownedBlueprints()) do
+        local screenPos, onScreen = cam:WorldToScreenPoint(blueprintCenter(model))
+        local sx = screenPos.X + inset.X
+        local sy = screenPos.Y + inset.Y
+        if onScreen and screenPos.Z > 0 and sx >= minX and sx <= maxX and sy >= minY and sy <= maxY then
+            toggleBlueprint(model)
         end
-    end
-    if #chosen == 0 then
-        plankIndex = 1
     end
     drawOutlines()
 end
 
 local function nextPlank()
-    if #chosen == 0 then
+    if #filteredPlanks == 0 then
         return nil
     end
-    local entry = chosen[plankIndex]
-    plankIndex = (plankIndex % #chosen) + 1
+    local entry = filteredPlanks[plankIndex]
+    plankIndex = (plankIndex % #filteredPlanks) + 1
     if not entry or not entry.part or not entry.part.Parent then
         return nil
     end
@@ -796,11 +744,11 @@ end
 
 local function onBlueprintClicked(target)
     local model = resolveModel(target)
-    if not isBlueprint(model) then
+    if not isBlueprint(model) or not table.find(chosen, model) then
         return
     end
-    if #chosen == 0 then
-        warn("[Jell] BP Filla: No planks selected")
+    if #filteredPlanks == 0 then
+        warn("[Jell] BP Filla: No planks to place")
         return
     end
     if busy or filling then
@@ -837,13 +785,12 @@ local function startFill()
         warn("[Jell] BP Filla: Busy")
         return
     end
-    if #chosen == 0 then
-        warn("[Jell] BP Filla: No planks selected")
+    if #filteredPlanks == 0 then
+        warn("[Jell] BP Filla: No planks to place")
         return
     end
-    local blueprints = ownedBlueprints()
-    if #blueprints == 0 then
-        warn("[Jell] BP Filla: No owned blueprints found")
+    if #chosen == 0 then
+        warn("[Jell] BP Filla: No blueprints selected")
         return
     end
     fillToken += 1
@@ -851,11 +798,11 @@ local function startFill()
     filling = true
     paintFill()
     task.spawn(function()
-        for index, blueprint in ipairs(blueprints) do
+        for index, blueprint in ipairs(chosen) do
             if token ~= fillToken or not started then
                 break
             end
-            local entry = chosen[((index - 1) % #chosen) + 1]
+            local entry = filteredPlanks[((index - 1) % #filteredPlanks) + 1]
             if entry and entry.part and entry.part.Parent and blueprint.Parent then
                 teleportObject(entry.part, CFrame.new(blueprintCenter(blueprint)), true)
             end
@@ -1419,7 +1366,7 @@ local function build(parent)
         Size = UDim2.new(1, -40, 1, 0),
         BackgroundTransparency = 1,
         Font = Enum.Font.SourceSans,
-        Text = "Planks",
+        Text = "Blueprints",
         TextSize = 15,
         TextColor3 = LABEL,
         TextXAlignment = Enum.TextXAlignment.Left,
@@ -1489,7 +1436,7 @@ local function build(parent)
             return
         end
         if not clickFill and #chosen == 0 then
-            warn("[Jell] BP Filla: Select planks first")
+            warn("[Jell] BP Filla: Select blueprints first")
             clickFill = false
             paintClick()
             return
