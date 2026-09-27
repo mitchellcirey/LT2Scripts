@@ -38,6 +38,8 @@ local PRE_FIRE = 0.05
 local POST_DELAY = 0.1
 local FALLBACK_WAIT = 0.5
 local OUTLINE_COLOR = Color3.fromRGB(0, 255, 255)
+local PLANK_SELL_CF = CFrame.new(315, 0, 88) * CFrame.Angles(math.rad(90), 0, 0)
+local PLANK_LOCK_TIME = 1
 
 local stackX = 5
 local stackY = 1
@@ -66,6 +68,7 @@ local stackMode = false
 local awaitRelease = false
 local itemRotation = CFrame.new()
 local busy = false
+local selling = false
 local selecting = false
 local batchCancelled = false
 local runToken = 0
@@ -248,6 +251,24 @@ local function liveSelected()
     local list = {}
     for _, obj in ipairs(selected) do
         if obj and obj.Parent then
+            table.insert(list, obj)
+        end
+    end
+    return list
+end
+
+local function plankModel(obj)
+    local model = obj and obj:FindFirstAncestorOfClass("Model")
+    if model and model.Name == "Plank" then
+        return model
+    end
+    return nil
+end
+
+local function selectedPlanks()
+    local list = {}
+    for _, obj in ipairs(liveSelected()) do
+        if plankModel(obj) then
             table.insert(list, obj)
         end
     end
@@ -438,10 +459,13 @@ local function paint()
     paintToggle(ui.group, groupSelect)
     paintToggle(ui.lasso, lasso)
     local count = #liveSelected()
-    local teleportOn = busy
-    local sortOn = busy or stackMode
-    paintAction(ui.teleport, "Start", teleportOn, busy or count > 0)
-    paintAction(ui.sort, "Start", sortOn, busy or stackMode or sameType())
+    local plankCount = #selectedPlanks()
+    local movingItems = busy and not selling
+    local teleportOn = movingItems
+    local sortOn = movingItems or stackMode
+    paintAction(ui.teleport, "Start", teleportOn, movingItems or (count > 0 and not selling))
+    paintAction(ui.sell, "Sell", selling, selling or (plankCount > 0 and not movingItems and not stackMode))
+    paintAction(ui.sort, "Start", sortOn, not selling and (movingItems or stackMode or sameType()))
     paintAction(ui.clear, "Clear", false, true)
     local moving = dimensionsLocked()
     paintSlider(ui.xFill, ui.xLabel, "X", stackX, 1, 40, tostring(stackX), moving)
@@ -455,7 +479,9 @@ local function paint()
     paintKey(ui.rotateX, rotateXKey.Name)
     paintKey(ui.rotateY, rotateYKey.Name)
     if ui.status and ui.status.Parent and not selecting then
-        if busy then
+        if selling then
+            setStatus("Selling")
+        elseif busy then
             setStatus("Moving")
         elseif stackMode then
             setStatus("Placing")
@@ -1180,7 +1206,7 @@ local function placeStack(hitPos)
 end
 
 local function teleportSelection()
-    if not started then
+    if not started or selling then
         return
     end
     if busy then
@@ -1207,6 +1233,73 @@ local function teleportSelection()
     busy = true
     paint()
     task.spawn(runBatch, jobs)
+end
+
+local function pinSold(target, token)
+    local deadline = os.clock() + PLANK_LOCK_TIME
+    while os.clock() < deadline and target and target.Parent and not aborted(token) do
+        target.CFrame = PLANK_SELL_CF
+        target.AssemblyLinearVelocity = Vector3.zero
+        target.AssemblyAngularVelocity = Vector3.zero
+        RunService.Heartbeat:Wait()
+    end
+end
+
+local function sellSelection()
+    if not started or stackMode then
+        return
+    end
+    if selling then
+        batchCancelled = true
+        return
+    end
+    if busy then
+        return
+    end
+    local list = selectedPlanks()
+    if #list == 0 then
+        return
+    end
+    batchCancelled = false
+    selling = true
+    busy = true
+    paint()
+    task.spawn(function()
+        local token = runToken
+        local rootPart = currentRoot()
+        if not started or not rootPart then
+            if token == runToken then
+                selling = false
+                busy = false
+                paint()
+            end
+            return
+        end
+        homeCFrame = rootPart.CFrame
+        local saved = rootPart.CFrame
+        for _, target in ipairs(list) do
+            if aborted(token) then
+                break
+            end
+            if target and target.Parent then
+                pcall(teleportSingle, target, PLANK_SELL_CF, rootPart, token)
+                if not aborted(token) and target.Parent then
+                    pinSold(target, token)
+                end
+            end
+        end
+        if token ~= runToken then
+            return
+        end
+        if returnToOrigin and rootPart.Parent then
+            rootPart.CFrame = saved
+        end
+        homeCFrame = nil
+        selling = false
+        busy = false
+        batchCancelled = false
+        refreshBoxes()
+    end)
 end
 
 local function selectOne()
@@ -1305,6 +1398,9 @@ local function sweepStrays()
 end
 
 local function onSortClick()
+    if selling then
+        return
+    end
     if stackMode then
         stopStack(false)
     elseif busy then
@@ -1706,6 +1802,7 @@ local function build(parent)
     ui.lasso = labeledToggle(toolsList, "Lasso", 3)
     ui.clear = labeledAction(toolsList, "Clear selection", 4, "Clear")
     ui.teleport = labeledAction(toolsList, "Teleport", 5, "Start")
+    ui.sell = labeledAction(toolsList, "Sell planks", 6, "Sell")
 
     local function labeledSlider(list, order)
         local row = block(list, 36, order)
@@ -1722,13 +1819,13 @@ local function build(parent)
         return label, slider, fill
     end
 
-    ui.xLabel, ui.xSlider, ui.xFill = labeledSlider(toolsList, 6)
-    ui.yLabel, ui.ySlider, ui.yFill = labeledSlider(toolsList, 7)
-    ui.zLabel, ui.zSlider, ui.zFill = labeledSlider(toolsList, 8)
-    ui.padLabel, ui.padSlider, ui.padFill = labeledSlider(toolsList, 9)
-    ui.sort = labeledAction(toolsList, "Sort", 10, "Start")
+    ui.xLabel, ui.xSlider, ui.xFill = labeledSlider(toolsList, 7)
+    ui.yLabel, ui.ySlider, ui.yFill = labeledSlider(toolsList, 8)
+    ui.zLabel, ui.zSlider, ui.zFill = labeledSlider(toolsList, 9)
+    ui.padLabel, ui.padSlider, ui.padFill = labeledSlider(toolsList, 10)
+    ui.sort = labeledAction(toolsList, "Sort", 11, "Start")
 
-    local statusBlock = block(toolsList, 16, 11)
+    local statusBlock = block(toolsList, 16, 12)
     ui.status = make("TextLabel", {
         Size = UDim2.new(1, 0, 1, 0),
         BackgroundTransparency = 1,
@@ -1770,6 +1867,12 @@ local function build(parent)
         awaitRelease = true
         if busy or #liveSelected() > 0 then
             teleportSelection()
+        end
+    end)
+    ui.sell.MouseButton1Down:Connect(function()
+        awaitRelease = true
+        if selling or #selectedPlanks() > 0 then
+            sellSelection()
         end
     end)
     ui.sort.MouseButton1Down:Connect(function()
@@ -1868,6 +1971,7 @@ function api.stop()
     batchCancelled = true
     runToken += 1
     busy = false
+    selling = false
     capturing = nil
     awaitRelease = false
     local rootPart = currentRoot()
