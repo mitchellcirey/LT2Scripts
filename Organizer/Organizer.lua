@@ -37,7 +37,7 @@ local PROXIMITY = 10
 local PRE_FIRE = 0.05
 local POST_DELAY = 0.1
 local FALLBACK_WAIT = 0.5
-local SELECT_COLOR = Color3.fromRGB(74, 120, 255)
+local OUTLINE_COLOR = Color3.fromRGB(0, 255, 255)
 
 local stackX = 5
 local stackY = 1
@@ -51,15 +51,19 @@ local rotateXKey = Enum.KeyCode.R
 local rotateYKey = Enum.KeyCode.T
 
 local selected = {}
-local boxes = {}
+local outlines = {}
 local previewParts = {}
 local previewBoxes = {}
+local previewSource = nil
+local previewSize = nil
+local previewBounds = nil
 local clickSelect = false
 local groupSelect = false
 local lasso = false
 local lassoDragging = false
 local lassoStart = nil
 local stackMode = false
+local awaitRelease = false
 local itemRotation = CFrame.new()
 local busy = false
 local selecting = false
@@ -73,6 +77,8 @@ local capturing = nil
 local statusText = "0 selected"
 
 local dashWindow = nil
+local screenGui = nil
+local outlineFolder = nil
 local overlay = nil
 local lassoFrame = nil
 local previewConn = nil
@@ -353,8 +359,8 @@ local function paintAction(button, idleText, active, enabled)
     if not (button and button.Parent) then
         return
     end
-    button.Active = enabled
     button.AutoButtonColor = false
+    button.Selectable = false
     if not enabled then
         button.Text = idleText
         button.BackgroundColor3 = FIELD
@@ -398,6 +404,10 @@ local function slidersLocked()
     return busy or stackMode
 end
 
+local function dimensionsLocked()
+    return busy
+end
+
 local function paintSlider(fill, label, caption, value, minValue, maxValue, text, locked)
     if label and label.Parent then
         label.Text = caption .. "  " .. text
@@ -420,11 +430,11 @@ local function paint()
     paintAction(ui.teleport, "Start", teleportOn, busy or count > 0)
     paintAction(ui.sort, "Start", sortOn, busy or stackMode or sameType())
     paintAction(ui.clear, "Clear", false, true)
-    local locked = slidersLocked()
-    paintSlider(ui.xFill, ui.xLabel, "X", stackX, 1, 40, tostring(stackX), locked)
-    paintSlider(ui.yFill, ui.yLabel, "Y", stackY, 1, 20, tostring(stackY), locked)
-    paintSlider(ui.zFill, ui.zLabel, "Z", stackZ, 1, 40, tostring(stackZ), locked)
-    paintSlider(ui.padFill, ui.padLabel, "Padding", padding, 0, 1, string.format("%.2f", padding), locked)
+    local moving = dimensionsLocked()
+    paintSlider(ui.xFill, ui.xLabel, "X", stackX, 1, 40, tostring(stackX), moving)
+    paintSlider(ui.yFill, ui.yLabel, "Y", stackY, 1, 20, tostring(stackY), moving)
+    paintSlider(ui.zFill, ui.zLabel, "Z", stackZ, 1, 40, tostring(stackZ), moving)
+    paintSlider(ui.padFill, ui.padLabel, "Padding", padding, 0, 1, string.format("%.2f", padding), slidersLocked())
     paintSlider(ui.timeoutFill, ui.timeoutLabel, "Ownership timeout", ownershipTimeout, 1, 6, tostring(ownershipTimeout), false)
     paintToggle(ui.keep, keepSelected)
     paintToggle(ui.origin, returnToOrigin)
@@ -477,29 +487,63 @@ local function ensureOverlay()
 end
 
 local function clearBoxes()
-    for _, box in ipairs(boxes) do
-        if box then
-            box:Destroy()
+    for model, hl in pairs(outlines) do
+        if hl then
+            hl:Destroy()
         end
+        outlines[model] = nil
     end
-    boxes = {}
+end
+
+local function ensureOutlineFolder()
+    if outlineFolder and outlineFolder.Parent then
+        return outlineFolder
+    end
+    local parent = (screenGui and screenGui.Parent and screenGui) or uiParent()
+    outlineFolder = make("Folder", {
+        Name = "OrganizerOutlines",
+    }, parent)
+    return outlineFolder
+end
+
+local function makeHighlight(model)
+    local hl = Instance.new("Highlight")
+    hl.Name = "OrganizerOutline"
+    hl.Adornee = model
+    hl.FillColor = OUTLINE_COLOR
+    hl.OutlineColor = OUTLINE_COLOR
+    hl.FillTransparency = 0.4
+    hl.OutlineTransparency = 0
+    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.Parent = ensureOutlineFolder()
+    return hl
 end
 
 local function refreshBoxes()
-    clearBoxes()
-    if not started then
-        paint()
-        return
+    local want = {}
+    if started then
+        for _, obj in ipairs(liveSelected()) do
+            local model = obj:FindFirstAncestorOfClass("Model") or obj
+            want[model] = true
+        end
     end
-    local gui = ensureOverlay()
-    for _, obj in ipairs(liveSelected()) do
-        local box = Instance.new("SelectionBox")
-        box.Name = "OrganizerSelection"
-        box.Color3 = SELECT_COLOR
-        box.LineThickness = 0.05
-        box.Adornee = obj
-        box.Parent = gui
-        table.insert(boxes, box)
+    for model, hl in pairs(outlines) do
+        if not want[model] or not model.Parent then
+            outlines[model] = nil
+            if hl then
+                hl:Destroy()
+            end
+        end
+    end
+    if started then
+        for model in pairs(want) do
+            local hl = outlines[model]
+            if hl and hl.Parent then
+                hl.Adornee = model
+            else
+                outlines[model] = makeHighlight(model)
+            end
+        end
     end
     paint()
 end
@@ -513,22 +557,50 @@ local function togglePart(main)
     end
 end
 
-local function overWindow()
-    if not (dashWindow and dashWindow.Visible and dashWindow.Parent) then
+local function covers(guiObject, x, y)
+    if not (guiObject and guiObject.Parent) then
         return false
     end
-    local mousePos = UserInputService:GetMouseLocation()
-    local gui = dashWindow:FindFirstAncestorWhichIsA("ScreenGui")
-    local x, y = mousePos.X, mousePos.Y
-    if not (gui and gui.IgnoreGuiInset) then
-        local inset = Services.GuiService:GetGuiInset()
-        x -= inset.X
-        y -= inset.Y
+    if guiObject:IsA("GuiObject") and not guiObject.Visible then
+        return false
     end
-    local pos = dashWindow.AbsolutePosition
-    local size = dashWindow.AbsoluteSize
+    local pos = guiObject.AbsolutePosition
+    local size = guiObject.AbsoluteSize
     return x >= pos.X and x <= pos.X + size.X
         and y >= pos.Y and y <= pos.Y + size.Y
+end
+
+local function selectionAvailable()
+    if not mounted or not (root and root.Parent) then
+        return false
+    end
+    if not (dashWindow and dashWindow.Parent and dashWindow.Visible) then
+        return false
+    end
+    local current = root
+    while current and current ~= dashWindow do
+        if current:IsA("GuiObject") and not current.Visible then
+            return false
+        end
+        current = current.Parent
+    end
+    return true
+end
+
+local function pointerOverPage()
+    local mouse = UserInputService:GetMouseLocation()
+    local inset = Services.GuiService:GetGuiInset()
+    local points = {
+        mouse,
+        Vector2.new(mouse.X - inset.X, mouse.Y - inset.Y),
+        Vector2.new(mouse.X + inset.X, mouse.Y + inset.Y),
+    }
+    for _, point in ipairs(points) do
+        if covers(root, point.X, point.Y) or covers(dashWindow, point.X, point.Y) then
+            return true
+        end
+    end
+    return false
 end
 
 local function dynamicDelay()
@@ -860,6 +932,9 @@ end
 local function stopStack(silent)
     stackMode = false
     itemRotation = CFrame.new()
+    previewSource = nil
+    previewSize = nil
+    previewBounds = nil
     clearPreview()
     if not silent then
         paint()
@@ -908,45 +983,53 @@ local function startStack()
         return
     end
     clearPreview()
-    local gui = ensureOverlay()
-    local archived = refModel.Archivable
-    refModel.Archivable = true
-    local function ghost(part)
-        part.Transparency = 0.55
-        part.Anchored = true
-        part.CanCollide = false
-        part.CanTouch = false
-        part.CastShadow = false
+    previewSource = refModel
+    previewSize = refSize
+    previewBounds = refBounds
+    local function addPreview()
+        if not previewSource then
+            return false
+        end
+        local archived = previewSource.Archivable
+        previewSource.Archivable = true
+        local clone = previewSource:Clone()
+        previewSource.Archivable = archived
+        if not clone then
+            return false
+        end
+        clone.Name = "OrganizerPreview"
+        local function ghost(part)
+            part.Transparency = 0.55
+            part.Anchored = true
+            part.CanCollide = false
+            part.CanTouch = false
+            part.CastShadow = false
+        end
+        if clone:IsA("BasePart") then
+            ghost(clone)
+        end
+        for _, desc in ipairs(clone:GetDescendants()) do
+            if desc:IsA("BasePart") then
+                ghost(desc)
+            end
+        end
+        local main = clone:FindFirstChild("Main") or clone:FindFirstChildWhichIsA("BasePart")
+        if clone:IsA("Model") and main then
+            clone.PrimaryPart = main
+        end
+        clone.Parent = Workspace
+        table.insert(previewParts, clone)
+        table.insert(previewBoxes, makeHighlight(clone))
+        return true
     end
     for _ = 1, stackCount do
-        local clone = refModel:Clone()
-        if clone then
-            clone.Name = "OrganizerPreview"
-            if clone:IsA("BasePart") then
-                ghost(clone)
-            end
-            for _, desc in ipairs(clone:GetDescendants()) do
-                if desc:IsA("BasePart") then
-                    ghost(desc)
-                end
-            end
-            local main = clone:FindFirstChild("Main") or clone:FindFirstChildWhichIsA("BasePart")
-            if clone:IsA("Model") and main then
-                clone.PrimaryPart = main
-            end
-            clone.Parent = Workspace
-            table.insert(previewParts, clone)
-            local box = Instance.new("SelectionBox")
-            box.Color3 = Color3.fromRGB(140, 180, 255)
-            box.LineThickness = 0.03
-            box.Adornee = clone
-            box.Parent = gui
-            table.insert(previewBoxes, box)
+        if not addPreview() then
+            break
         end
     end
-    refModel.Archivable = archived
     if #previewParts == 0 then
         clearPreview()
+        previewSource = nil
         return
     end
     stackMode = true
@@ -974,6 +1057,62 @@ local function startStack()
             end
         end
     end)
+end
+
+local function syncPreviewCount()
+    if not stackMode or not previewSource then
+        return
+    end
+    local desired = math.min(stackX * stackY * stackZ, #liveSelected())
+    if desired < 1 then
+        return
+    end
+    while #previewParts > desired do
+        local clone = table.remove(previewParts)
+        local hl = table.remove(previewBoxes)
+        if hl then
+            hl:Destroy()
+        end
+        if clone then
+            clone:Destroy()
+        end
+    end
+    while #previewParts < desired do
+        local before = #previewParts
+        local archived = previewSource.Archivable
+        previewSource.Archivable = true
+        local clone = previewSource:Clone()
+        previewSource.Archivable = archived
+        if not clone then
+            break
+        end
+        clone.Name = "OrganizerPreview"
+        local function ghost(part)
+            part.Transparency = 0.55
+            part.Anchored = true
+            part.CanCollide = false
+            part.CanTouch = false
+            part.CastShadow = false
+        end
+        if clone:IsA("BasePart") then
+            ghost(clone)
+        end
+        for _, desc in ipairs(clone:GetDescendants()) do
+            if desc:IsA("BasePart") then
+                ghost(desc)
+            end
+        end
+        local main = clone:FindFirstChild("Main") or clone:FindFirstChildWhichIsA("BasePart")
+        if clone:IsA("Model") and main then
+            clone.PrimaryPart = main
+        end
+        clone.Parent = Workspace
+        table.insert(previewParts, clone)
+        table.insert(previewBoxes, makeHighlight(clone))
+        if #previewParts == before then
+            break
+        end
+    end
 end
 
 local function placeStack(hitPos)
@@ -1084,6 +1223,9 @@ local function selectGroup()
             if step % 1000 == 0 then
                 task.wait()
             end
+            if not selectionAvailable() then
+                break
+            end
             if obj:IsA("Model")
                 and itemName(obj) == targetItem
                 and ownerIdentity(obj) == targetOwner
@@ -1115,7 +1257,9 @@ local function clearSelection()
         stopStack(true)
     end
     selected = {}
-    batchCancelled = true
+    if busy then
+        batchCancelled = true
+    end
     refreshBoxes()
 end
 
@@ -1143,10 +1287,10 @@ local function onSortClick()
 end
 
 local function onMouseDown()
-    if not started or capturing or busy or selecting then
+    if awaitRelease or not started or capturing or busy or selecting then
         return
     end
-    if overWindow() or UserInputService:GetFocusedTextBox() then
+    if pointerOverPage() or UserInputService:GetFocusedTextBox() then
         return
     end
     if stackMode then
@@ -1154,6 +1298,8 @@ local function onMouseDown()
         if hit then
             placeStack(hit)
         end
+    elseif not selectionAvailable() then
+        return
     elseif lasso then
         ensureOverlay()
         lassoDragging = true
@@ -1214,18 +1360,34 @@ local function bindInput()
         onMouseDown()
     end))
     track(UserInputService.InputChanged:Connect(function(input)
-        if lassoDragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-            updateLasso(UserInputService:GetMouseLocation())
+        if not (lassoDragging and input.UserInputType == Enum.UserInputType.MouseMovement) then
+            return
         end
-    end))
-    track(UserInputService.InputEnded:Connect(function(input)
-        if lassoDragging and input.UserInputType == Enum.UserInputType.MouseButton1 then
+        if not selectionAvailable() then
             lassoDragging = false
+            lassoStart = nil
             if lassoFrame then
                 lassoFrame.Visible = false
             end
-            selectLasso(lassoStart, UserInputService:GetMouseLocation())
+            return
+        end
+        updateLasso(UserInputService:GetMouseLocation())
+    end))
+    track(UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            awaitRelease = false
+        end
+        if lassoDragging and input.UserInputType == Enum.UserInputType.MouseButton1 then
+            local startPos = lassoStart
+            local endPos = UserInputService:GetMouseLocation()
+            lassoDragging = false
             lassoStart = nil
+            if lassoFrame then
+                lassoFrame.Visible = false
+            end
+            if selectionAvailable() then
+                selectLasso(startPos, endPos)
+            end
         end
     end))
 end
@@ -1347,6 +1509,7 @@ local function toggleButton(parent)
         BackgroundColor3 = FIELD,
         Text = "",
         AutoButtonColor = false,
+        Selectable = false,
     }, parent)
     make("UICorner", {
         CornerRadius = UDim.new(1, 0),
@@ -1380,6 +1543,7 @@ local function actionButton(parent, text)
         TextSize = 15,
         TextColor3 = DARK,
         AutoButtonColor = false,
+        Selectable = false,
     }, parent)
 end
 
@@ -1394,6 +1558,7 @@ local function keyButton(parent, bind)
         TextSize = 15,
         TextColor3 = TEXT,
         AutoButtonColor = false,
+        Selectable = false,
     }, parent)
     button:SetAttribute("Bind", bind)
     return button
@@ -1407,6 +1572,7 @@ local function sliderButton(parent)
         BorderSizePixel = 0,
         Text = "",
         AutoButtonColor = false,
+        Selectable = false,
     }, parent)
     local fill = make("Frame", {
         Size = UDim2.new(0, 0, 1, 0),
@@ -1427,6 +1593,7 @@ local function scrollingPage(parent)
         CanvasSize = UDim2.new(),
         AutomaticCanvasSize = Enum.AutomaticSize.Y,
         ScrollingDirection = Enum.ScrollingDirection.Y,
+        Selectable = false,
     }, parent)
     local list = make("Frame", {
         Size = UDim2.new(1, -8, 0, 0),
@@ -1459,6 +1626,7 @@ local function build(parent)
         TextSize = 15,
         TextColor3 = WHITE,
         AutoButtonColor = false,
+        Selectable = false,
     }, root)
     local settingsTab = make("TextButton", {
         Size = UDim2.new(0.5, -1, 0, 22),
@@ -1469,6 +1637,7 @@ local function build(parent)
         TextSize = 15,
         TextColor3 = Color3.fromRGB(175, 175, 175),
         AutoButtonColor = false,
+        Selectable = false,
     }, root)
 
     local toolsPage, toolsList = scrollingPage(root)
@@ -1564,30 +1733,41 @@ local function build(parent)
     ui.lasso.MouseButton1Click:Connect(function()
         setMode("lasso", not lasso)
     end)
-    ui.clear.MouseButton1Click:Connect(clearSelection)
-    ui.teleport.MouseButton1Click:Connect(function()
+    ui.clear.MouseButton1Down:Connect(function()
+        awaitRelease = true
+        clearSelection()
+    end)
+    ui.teleport.MouseButton1Down:Connect(function()
+        awaitRelease = true
         if busy or #liveSelected() > 0 then
             teleportSelection()
         end
     end)
-    ui.sort.MouseButton1Click:Connect(function()
+    ui.sort.MouseButton1Down:Connect(function()
+        awaitRelease = true
         if busy or stackMode or sameType() then
             onSortClick()
         end
     end)
 
-    hookSlider(ui.xSlider, integerRead(ui.xSlider, 1, 40), function(value)
+    local function setDimension(apply)
+        return function(value)
+            apply(value)
+            if stackMode then
+                syncPreviewCount()
+            end
+            paint()
+        end
+    end
+    hookSlider(ui.xSlider, integerRead(ui.xSlider, 1, 40), setDimension(function(value)
         stackX = value
-        paint()
-    end, slidersLocked)
-    hookSlider(ui.ySlider, integerRead(ui.ySlider, 1, 20), function(value)
+    end), dimensionsLocked)
+    hookSlider(ui.ySlider, integerRead(ui.ySlider, 1, 20), setDimension(function(value)
         stackY = value
-        paint()
-    end, slidersLocked)
-    hookSlider(ui.zSlider, integerRead(ui.zSlider, 1, 40), function(value)
+    end), dimensionsLocked)
+    hookSlider(ui.zSlider, integerRead(ui.zSlider, 1, 40), setDimension(function(value)
         stackZ = value
-        paint()
-    end, slidersLocked)
+    end), dimensionsLocked)
     hookSlider(ui.padSlider, function(x)
         local width = ui.padSlider.AbsoluteSize.X
         if width <= 0 then
@@ -1639,6 +1819,7 @@ local api = {}
 function api.start(ctx)
     if type(ctx) == "table" then
         dashWindow = ctx.window
+        screenGui = ctx.screenGui
     end
     if started then
         return
@@ -1659,6 +1840,7 @@ function api.stop()
     runToken += 1
     busy = false
     capturing = nil
+    awaitRelease = false
     local rootPart = currentRoot()
     if homeCFrame and returnToOrigin and rootPart then
         rootPart.CFrame = homeCFrame
@@ -1667,6 +1849,10 @@ function api.stop()
     stopStack(true)
     selected = {}
     clearBoxes()
+    if outlineFolder then
+        outlineFolder:Destroy()
+        outlineFolder = nil
+    end
     destroyOverlay()
     unbind()
     sweepStrays()
@@ -1674,8 +1860,13 @@ function api.stop()
 end
 
 function api.mount(parent, ctx)
-    if type(ctx) == "table" and ctx.window then
-        dashWindow = ctx.window
+    if type(ctx) == "table" then
+        if ctx.window then
+            dashWindow = ctx.window
+        end
+        if ctx.screenGui then
+            screenGui = ctx.screenGui
+        end
     end
     if mounted then
         api.unmount()
@@ -1687,6 +1878,11 @@ end
 
 function api.unmount()
     mounted = false
+    lassoDragging = false
+    lassoStart = nil
+    if lassoFrame then
+        lassoFrame.Visible = false
+    end
     capturing = nil
     disconnectDrag()
     toggleKnobs = {}

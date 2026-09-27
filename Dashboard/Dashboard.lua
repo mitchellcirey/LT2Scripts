@@ -102,7 +102,7 @@ local settings = {
 
 local backgroundOpacity = 92
 
-local toggleKey = Enum.KeyCode.Tab
+local toggleKey = Enum.KeyCode.Tab --Enum.KeyCode.LeftAlt instead maybe??? idk whats better but changable in game
 local capturingKey = false
 local savedLighting
 local shownId
@@ -412,7 +412,7 @@ local screenGui = make("ScreenGui", {
 local window = make("CanvasGroup", {
     Name = "Window",
     Size = UDim2.fromOffset(WINDOW_W, WINDOW_H),
-    Position = UDim2.new(0, WINDOW_EDGE, 1, -(WINDOW_H + WINDOW_EDGE - 12)),
+    Position = UDim2.new(1, -(WINDOW_W + WINDOW_EDGE), 1, -(WINDOW_H + WINDOW_EDGE - 12)),
     BackgroundColor3 = Color3.fromRGB(18, 18, 18),
     BackgroundTransparency = 1 - (backgroundOpacity / 100),
     BorderSizePixel = 0,
@@ -1728,7 +1728,7 @@ local introTween = Services.TweenService:Create(
     TweenInfo.new(0.45, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
     {
         GroupTransparency = 0,
-        Position = UDim2.new(0, WINDOW_EDGE, 1, -(WINDOW_H + WINDOW_EDGE)),
+        Position = UDim2.new(1, -(WINDOW_W + WINDOW_EDGE), 1, -(WINDOW_H + WINDOW_EDGE)),
     }
 )
 introTween:Play()
