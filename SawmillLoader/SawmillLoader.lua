@@ -1095,13 +1095,12 @@ end
 
 function api.start()
     armed = true
-    watchHighlights()
-    if running then
-        ensureCircle()
-        paintRun()
+    if not mounted or running then
         return
     end
-    startRun()
+    watchHighlights()
+    refreshHighlights()
+    paintRun()
 end
 
 function api.stop()
