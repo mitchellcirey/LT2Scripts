@@ -1173,9 +1173,22 @@ local function ensureBuyProgress(anchor)
     placeBuyProgress()
     syncProgressGlass()
     progressCard.Parent = gui
+    progressCard.Visible = false
     progressLift.Changed:Connect(placeBuyProgress)
     host:GetPropertyChangedSignal("Position"):Connect(placeBuyProgress)
     host:GetPropertyChangedSignal("AbsoluteSize"):Connect(placeBuyProgress)
+    host:GetPropertyChangedSignal("Visible"):Connect(function()
+        if not (progressCard and progressWindow) then
+            return
+        end
+        if not progressWindow.Visible then
+            progressCard.Visible = false
+            return
+        end
+        if progressCard:GetAttribute("Shown") == true then
+            progressCard.Visible = true
+        end
+    end)
     local plate = host:FindFirstChild("HeaderPlate")
     if plate then
         plate:GetPropertyChangedSignal("BackgroundTransparency"):Connect(syncProgressGlass)
@@ -1195,6 +1208,14 @@ local function slideBuyProgress(shown)
         TweenInfo.new(0.3, Enum.EasingStyle.Quad, shown and Enum.EasingDirection.Out or Enum.EasingDirection.In),
         { Value = shown and 0 or PROGRESS_H }
     )
+    progressSlide.Completed:Connect(function(state)
+        if state ~= Enum.PlaybackState.Completed then
+            return
+        end
+        if progressCard and progressCard:GetAttribute("Shown") ~= true then
+            progressCard.Visible = false
+        end
+    end)
     progressSlide:Play()
 end
 
@@ -1212,6 +1233,7 @@ local function showBuyProgress(name, total)
         progressGrow:Cancel()
     end
     progressFill.Size = UDim2.new(0, 0, 1, 0)
+    card.Visible = progressWindow ~= nil and progressWindow.Visible
     slideBuyProgress(true)
     return token
 end
@@ -1243,6 +1265,13 @@ local function hideBuyProgress(token)
         return
     end
     progressCard:SetAttribute("Shown", false)
+    if not (progressWindow and progressWindow.Visible) then
+        progressCard.Visible = false
+        if progressLift then
+            progressLift.Value = PROGRESS_H
+        end
+        return
+    end
     slideBuyProgress(false)
 end
 
