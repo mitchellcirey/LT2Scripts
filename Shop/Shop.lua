@@ -1218,7 +1218,50 @@ local function runBlueprintLoop(onDone)
     end
 end
 
+local function ownsPowerOfEase()
+    local flag = Player:FindFirstChild("SuperBlueprint")
+    return flag ~= nil and flag.Value == true
+end
+
+local function updatePowerOfEase()
+    if not (poeBtn and poeBtn.Parent) then
+        return
+    end
+    if ownsPowerOfEase() then
+        poeBtn.Text = "Owned"
+        setEnabled(poeBtn, false)
+        return
+    end
+    poeBtn.Text = "Buy"
+    setEnabled(poeBtn, true)
+end
+
+local function watchPowerOfEase()
+    local function wire(flag)
+        connect(flag:GetPropertyChangedSignal("Value"), function()
+            if mounted then
+                updatePowerOfEase()
+            end
+        end)
+        updatePowerOfEase()
+    end
+    local flag = Player:FindFirstChild("SuperBlueprint")
+    if flag then
+        wire(flag)
+        return
+    end
+    connect(Player.ChildAdded, function(child)
+        if mounted and child.Name == "SuperBlueprint" then
+            wire(child)
+        end
+    end)
+end
+
 local function purchasePowerOfEase()
+    if ownsPowerOfEase() then
+        updatePowerOfEase()
+        return
+    end
     local pocket = fetchFunds()
     if pocket == nil or pocket < POE_PRICE then
         warn("[Jell] Shop: Not enough money for Power of Ease")
@@ -1259,6 +1302,9 @@ local function purchasePowerOfEase()
     end
     local deadline = os.clock() + 60
     while os.clock() < deadline do
+        if ownsPowerOfEase() then
+            break
+        end
         safeInvoke(npcArg, "Initiate")
         safeInvoke(npcArg, "ConfirmPurchase")
         safeInvoke(npcArg, "EndChat")
@@ -2146,6 +2192,7 @@ local function build(parent)
     updatePurchase()
     updateBlueprintSlots()
     updateBlueprintBtn()
+    updatePowerOfEase()
     if buyingRukiry and rukiryBtn then
         rukiryBtn.Text = "Stop"
         setEnabled(rukiryBtn, true)
@@ -2166,6 +2213,7 @@ function api.mount(parent)
     end
     build(parent)
     mounted = true
+    watchPowerOfEase()
     if shopItems then
         watchBlueprints()
         pollFunds()

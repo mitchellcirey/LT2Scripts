@@ -44,6 +44,11 @@ local SCRIPTS = {
         url = BASE .. "Organizer/Organizer.lua",
     },
     {
+        id = "BPFilla",
+        name = "BP Filla",
+        url = BASE .. "BPFilla/BPFilla.lua",
+    },
+    {
         id = "Management",
         name = "Management",
         url = BASE .. "Management/Management.lua",
@@ -74,6 +79,8 @@ local ID = {
     JUMP_CONN = "JellDashboardJump",
     NOCLIP_CONN = "JellDashboardNoclip",
     NOCLIP_WATCH = "JellDashboardNoclipWatch",
+    AXE_ADDED = "JellDashboardAxeAdded",
+    AXE_DEATH = "JellDashboardAxeDeath",
     HOVER_CONN = "JellDashboardHoverConn",
     HOVER_MOVE_CONN = "JellDashboardHoverMove",
     SHIFT_BEGAN = "JellDashboardShiftBegan",
@@ -114,6 +121,7 @@ local settings = {
     noClip = false,
     enhancedVisuals = false,
     lowerBridge = false,
+    axeRecovery = true,
 }
 
 local backgroundOpacity = 92
@@ -152,6 +160,7 @@ local function saveConfig()
         noClip = settings.noClip,
         enhancedVisuals = settings.enhancedVisuals,
         lowerBridge = settings.lowerBridge,
+        axeRecovery = settings.axeRecovery,
         backgroundOpacity = backgroundOpacity,
         toggleKey = toggleKey.Name,
     }
@@ -198,6 +207,7 @@ local function applySaved(data)
         "noClip",
         "enhancedVisuals",
         "lowerBridge",
+        "axeRecovery",
     }) do
         if type(data[key]) == "boolean" then
             settings[key] = data[key]
@@ -1826,6 +1836,128 @@ bindAfk()
 bindJump()
 bindNoclip()
 
+local AXE_SETTLE = 0.1
+local AXE_TIMEOUT = 3
+local AXE_FIRE_RATE = 0.15
+local AXE_RADIUS = 50
+local AXE_MAX = 9
+
+local axeDeathPosition = nil
+
+local function stopAxeRecovery()
+    disconnectShared(ID.AXE_ADDED)
+    disconnectShared(ID.AXE_DEATH)
+    axeDeathPosition = nil
+end
+
+local function countHeldTools()
+    local count = 0
+    local world = Services.Workspace:FindFirstChild(Player.Name)
+    for _, container in ipairs({ Player.Backpack, Player.Character, world }) do
+        if container then
+            for _, child in ipairs(container:GetChildren()) do
+                if child.Name == "Tool" and child:IsA("Tool") then
+                    count += 1
+                end
+            end
+        end
+    end
+    return count
+end
+
+local function ownedAxesNearDeath()
+    local axes = {}
+    local models = Services.Workspace:FindFirstChild("PlayerModels")
+    if not models then
+        return axes
+    end
+    for _, obj in ipairs(models:GetDescendants()) do
+        if obj.Name == "Model" and obj:IsA("Model") then
+            local owner = obj:FindFirstChild("Owner")
+            local ownerString = owner and owner:FindFirstChild("OwnerString")
+            if ownerString and ownerString.Value == Player.Name then
+                local handle = obj:FindFirstChild("Handle") or obj.PrimaryPart
+                if not axeDeathPosition then
+                    table.insert(axes, obj)
+                elseif handle and (handle.Position - axeDeathPosition).Magnitude <= AXE_RADIUS then
+                    table.insert(axes, obj)
+                end
+            end
+        end
+    end
+    return axes
+end
+
+local function pickupAxe(axe)
+    local handle = axe:FindFirstChild("Handle") or axe.PrimaryPart
+    if not handle then
+        return false
+    end
+    local interaction = Services.ReplicatedStorage:FindFirstChild("Interaction")
+    local remote = interaction and interaction:FindFirstChild("ClientInteracted")
+    if not remote then
+        return false
+    end
+    local before = countHeldTools()
+    local deadline = os.clock() + AXE_TIMEOUT
+    while os.clock() < deadline do
+        if not settings.axeRecovery or not axe.Parent then
+            return false
+        end
+        pcall(function()
+            remote:FireServer(axe, "Pick up tool", handle.CFrame)
+        end)
+        task.wait(AXE_FIRE_RATE)
+        if countHeldTools() > before then
+            return true
+        end
+    end
+    return false
+end
+
+local function recoverAxes()
+    task.wait(AXE_SETTLE)
+    if not settings.axeRecovery then
+        return
+    end
+    local axes = ownedAxesNearDeath()
+    local limit = math.min(#axes, AXE_MAX)
+    for index = 1, limit do
+        if not settings.axeRecovery then
+            return
+        end
+        pickupAxe(axes[index])
+    end
+end
+
+local function hookAxeDeath(character)
+    local humanoid = character:WaitForChild("Humanoid", 10)
+    if not humanoid or not settings.axeRecovery or Player.Character ~= character then
+        return
+    end
+    disconnectShared(ID.AXE_DEATH)
+    shared[ID.AXE_DEATH] = humanoid.Died:Connect(function()
+        local rootPart = character:FindFirstChild("HumanoidRootPart")
+        axeDeathPosition = rootPart and rootPart.Position or nil
+    end)
+end
+
+local function bindAxeRecovery()
+    stopAxeRecovery()
+    if not settings.axeRecovery then
+        return
+    end
+    if Player.Character then
+        task.spawn(hookAxeDeath, Player.Character)
+    end
+    shared[ID.AXE_ADDED] = Player.CharacterAdded:Connect(function(character)
+        task.spawn(hookAxeDeath, character)
+        task.spawn(recoverAxes)
+    end)
+end
+
+bindAxeRecovery()
+
 local ctx = {
     screenGui = screenGui,
     window = window,
@@ -2282,6 +2414,10 @@ local function toggleRow(labelText, key, order)
             end
             return
         end
+        if key == "axeRecovery" then
+            bindAxeRecovery()
+            return
+        end
         if key == "alwaysDay" and not settings.alwaysDay then
             restoreAlwaysDay()
         elseif key == "disableFog" and not settings.disableFog then
@@ -2308,12 +2444,13 @@ toggleRow("Enhanced visuals", "enhancedVisuals", 10)
 toggleRow("Lower bridge", "lowerBridge", 11)
 titleRule(settingsPage, "Player", 0, 22, 15, headerColor, 12)
 toggleRow("Prevent AFK kick", "preventAfkKick", 13)
-titleRule(settingsPage, "Window", 0, 22, 15, headerColor, 14)
+toggleRow("Axe recovery", "axeRecovery", 14)
+titleRule(settingsPage, "Window", 0, 22, 15, headerColor, 15)
 
 local keyRow = make("Frame", {
     Size = UDim2.new(1, 0, 0, 22),
     BackgroundTransparency = 1,
-    LayoutOrder = 15,
+    LayoutOrder = 16,
 }, settingsPage)
 make("TextLabel", {
     Size = UDim2.new(1, -96, 1, 0),
@@ -2340,7 +2477,7 @@ local keyBtn = make("TextButton", {
 local opacityRow = make("Frame", {
     Size = UDim2.new(1, 0, 0, 36),
     BackgroundTransparency = 1,
-    LayoutOrder = 16,
+    LayoutOrder = 17,
 }, settingsPage)
 make("TextLabel", {
     Size = UDim2.new(1, -40, 0, 16),
@@ -2554,6 +2691,7 @@ local function shutdown()
     disconnectShared(ID.JUMP_CONN)
     disconnectShared(ID.NOCLIP_CONN)
     releaseNoclipWatch()
+    stopAxeRecovery()
     if ferryConn then
         ferryConn:Disconnect()
         ferryConn = nil
