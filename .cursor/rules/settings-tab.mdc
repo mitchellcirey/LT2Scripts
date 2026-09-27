@@ -5,7 +5,7 @@ alwaysApply: true
 
 # Settings
 
-Ctrl Click, Disable shadows, Disable fog, Always Day, Disable shift walk, and Prevent AFK kick live in `Dashboard/Dashboard.lua`. They start on. Infinite jump, No clip, Enhanced visuals, and Lower bridge live there too and start off. Do not save any of them.
+Ctrl Click, Disable shadows, Disable fog, Always Day, Disable shift walk, and Prevent AFK kick live in `Dashboard/Dashboard.lua`. They start on. Infinite jump, No clip, Enhanced visuals, and Lower bridge live there too and start off. Background opacity lives there too, starts at 92, and is not saved. Do not save any of them.
 
 Script-specific settings stay on that script's settings page and in its `saveConfig`.
 

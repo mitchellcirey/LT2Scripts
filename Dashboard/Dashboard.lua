@@ -76,6 +76,11 @@ local ROW = Color3.fromRGB(32, 32, 32)
 local TEXT = Color3.fromRGB(230, 230, 230)
 local MUTED = Color3.fromRGB(160, 160, 160)
 local TOGGLE_OFF = Color3.fromRGB(58, 58, 58)
+local BUTTON_BG = Color3.fromRGB(58, 58, 58)
+local HOVER_BG = Color3.fromRGB(96, 96, 96)
+local WINDOW_W = 640
+local WINDOW_H = 480
+local WINDOW_EDGE = 16
 local TOGGLE_W = 28
 local TOGGLE_H = 14
 local TOGGLE_KNOB = 10
@@ -94,6 +99,8 @@ local settings = {
     enhancedVisuals = false,
     lowerBridge = false,
 }
+
+local backgroundOpacity = 92
 
 local toggleKey = Enum.KeyCode.Tab
 local capturingKey = false
@@ -404,10 +411,10 @@ local screenGui = make("ScreenGui", {
 
 local window = make("CanvasGroup", {
     Name = "Window",
-    Size = UDim2.fromOffset(640, 480),
-    Position = UDim2.new(0.5, -320, 0.5, -228),
+    Size = UDim2.fromOffset(WINDOW_W, WINDOW_H),
+    Position = UDim2.new(0, WINDOW_EDGE, 1, -(WINDOW_H + WINDOW_EDGE - 12)),
     BackgroundColor3 = Color3.fromRGB(18, 18, 18),
-    BackgroundTransparency = 0.08,
+    BackgroundTransparency = 1 - (backgroundOpacity / 100),
     BorderSizePixel = 0,
     Active = true,
     GroupTransparency = 1,
@@ -431,11 +438,32 @@ make("TextLabel", {
     Position = UDim2.fromOffset(12, 0),
     BackgroundTransparency = 1,
     Font = Enum.Font.GothamBold,
-    Text = "JELL'S DASHBOARD",
+    Text = "JELL'S LT2 DASHBOARD",
     TextSize = 16,
     TextColor3 = TEXT,
     TextXAlignment = Enum.TextXAlignment.Left,
 }, titleBar)
+
+local function bindHover(button)
+    local baseColor = button.BackgroundColor3
+    local baseTransparency = button.BackgroundTransparency
+    button.MouseEnter:Connect(function()
+        button.BackgroundColor3 = HOVER_BG
+        button.BackgroundTransparency = 0
+    end)
+    button.MouseLeave:Connect(function()
+        button.BackgroundColor3 = baseColor
+        button.BackgroundTransparency = baseTransparency
+    end)
+end
+
+local function switchColor(on, hovering)
+    local color = on and GREEN or TOGGLE_OFF
+    if hovering then
+        return color:Lerp(Color3.new(1, 1, 1), 0.35)
+    end
+    return color
+end
 
 local closeBtn = make("TextButton", {
     Size = UDim2.fromOffset(28, 28),
@@ -447,6 +475,7 @@ local closeBtn = make("TextButton", {
     TextColor3 = MUTED,
     AutoButtonColor = false,
 }, titleBar)
+bindHover(closeBtn)
 
 local body = make("Frame", {
     Size = UDim2.new(1, 0, 1, -28),
@@ -457,15 +486,24 @@ local body = make("Frame", {
 local sidebar = make("Frame", {
     Size = UDim2.new(0, 200, 1, 0),
     BackgroundColor3 = SIDEBAR,
+    BackgroundTransparency = 1 - (backgroundOpacity / 100),
     BorderSizePixel = 0,
 }, body)
 
-make("Frame", {
+local sidebarRule = make("Frame", {
     Size = UDim2.new(0, 1, 1, 0),
     Position = UDim2.fromOffset(200, 0),
     BackgroundColor3 = Color3.fromRGB(48, 48, 48),
+    BackgroundTransparency = 1 - (backgroundOpacity / 100),
     BorderSizePixel = 0,
 }, body)
+
+local function applyBackground()
+    local transparency = 1 - (backgroundOpacity / 100)
+    window.BackgroundTransparency = transparency
+    sidebar.BackgroundTransparency = transparency
+    sidebarRule.BackgroundTransparency = transparency
+end
 
 local content = make("Frame", {
     Size = UDim2.new(1, -201, 1, 0),
@@ -675,7 +713,7 @@ local function homeAction(labelText, buttonText, y, action)
     local button = make("TextButton", {
         Size = UDim2.fromOffset(88, 22),
         Position = UDim2.new(1, -88, 0, y),
-        BackgroundColor3 = Color3.fromRGB(58, 58, 58),
+        BackgroundColor3 = BUTTON_BG,
         BorderSizePixel = 0,
         Font = Enum.Font.SourceSans,
         Text = buttonText,
@@ -683,6 +721,7 @@ local function homeAction(labelText, buttonText, y, action)
         TextColor3 = TEXT,
         AutoButtonColor = false,
     }, welcomePage)
+    bindHover(button)
     button.MouseButton1Click:Connect(function()
         task.spawn(action)
     end)
@@ -700,7 +739,7 @@ end)
 local homeBtn = make("TextButton", {
     Size = UDim2.new(1, -16, 0, 24),
     Position = UDim2.fromOffset(8, 8),
-    BackgroundColor3 = Color3.fromRGB(58, 58, 58),
+    BackgroundColor3 = BUTTON_BG,
     BorderSizePixel = 0,
     Font = Enum.Font.SourceSansBold,
     Text = "Home",
@@ -708,11 +747,12 @@ local homeBtn = make("TextButton", {
     TextColor3 = Color3.fromRGB(255, 255, 255),
     AutoButtonColor = false,
 }, sidebar)
+bindHover(homeBtn)
 
 local settingsBtn = make("TextButton", {
     Size = UDim2.new(1, -16, 0, 24),
     Position = UDim2.fromOffset(8, 40),
-    BackgroundColor3 = Color3.fromRGB(58, 58, 58),
+    BackgroundColor3 = BUTTON_BG,
     BorderSizePixel = 0,
     Font = Enum.Font.SourceSans,
     Text = "Settings",
@@ -720,6 +760,7 @@ local settingsBtn = make("TextButton", {
     TextColor3 = Color3.fromRGB(210, 210, 210),
     AutoButtonColor = false,
 }, sidebar)
+bindHover(settingsBtn)
 
 local accountOpen = true
 local scriptsOpen = true
@@ -767,6 +808,7 @@ local function groupButton(text, order)
         TextSize = 14,
         TextColor3 = MUTED,
     }, button)
+    bindHover(button)
     return button, chevron
 end
 
@@ -984,12 +1026,14 @@ local function paintToggle(state)
         return
     end
     state.toggleOn = on
+    state.track:SetAttribute("On", on)
     local knobX = on and (TOGGLE_W - TOGGLE_KNOB - TOGGLE_PAD) or TOGGLE_PAD
+    local hovering = state.track:GetAttribute("Hovering") == true
     Services.TweenService:Create(state.knob, TOGGLE_TWEEN, {
         Position = UDim2.fromOffset(knobX, (TOGGLE_H - TOGGLE_KNOB) / 2),
     }):Play()
     Services.TweenService:Create(state.track, TOGGLE_TWEEN, {
-        BackgroundColor3 = on and GREEN or TOGGLE_OFF,
+        BackgroundColor3 = switchColor(on, hovering),
     }):Play()
 end
 
@@ -1245,16 +1289,27 @@ local function toggleSwitch(parent)
     make("UICorner", {
         CornerRadius = UDim.new(1, 0),
     }, knob)
+    track:SetAttribute("On", false)
+    track.MouseEnter:Connect(function()
+        track:SetAttribute("Hovering", true)
+        track.BackgroundColor3 = switchColor(track:GetAttribute("On") == true, true)
+    end)
+    track.MouseLeave:Connect(function()
+        track:SetAttribute("Hovering", false)
+        track.BackgroundColor3 = switchColor(track:GetAttribute("On") == true, false)
+    end)
     return track, knob
 end
 
 local function paintSwitch(track, knob, on)
+    track:SetAttribute("On", on)
     local knobX = on and (TOGGLE_W - TOGGLE_KNOB - TOGGLE_PAD) or TOGGLE_PAD
+    local hovering = track:GetAttribute("Hovering") == true
     Services.TweenService:Create(knob, TOGGLE_TWEEN, {
         Position = UDim2.fromOffset(knobX, (TOGGLE_H - TOGGLE_KNOB) / 2),
     }):Play()
     Services.TweenService:Create(track, TOGGLE_TWEEN, {
-        BackgroundColor3 = on and GREEN or TOGGLE_OFF,
+        BackgroundColor3 = switchColor(on, hovering),
     }):Play()
 end
 
@@ -1280,7 +1335,7 @@ for index, entry in ipairs(SCRIPTS) do
     local rowParent = entry.power == false and accountList or scriptList
     local row = make("Frame", {
         Size = UDim2.new(1, 0, 0, 24),
-        BackgroundColor3 = SIDEBAR,
+        BackgroundTransparency = 1,
         BorderSizePixel = 0,
         LayoutOrder = index,
     }, rowParent)
@@ -1297,6 +1352,7 @@ for index, entry in ipairs(SCRIPTS) do
         TextTruncate = Enum.TextTruncate.AtEnd,
         AutoButtonColor = false,
     }, row)
+    bindHover(nameBtn)
     make("UIPadding", {
         PaddingLeft = UDim.new(0, 6),
     }, nameBtn)
@@ -1348,7 +1404,8 @@ local function toggleRow(labelText, key, order)
     local on = settings[key] == true
     local knobX = on and (TOGGLE_W - TOGGLE_KNOB - TOGGLE_PAD) or TOGGLE_PAD
     knob.Position = UDim2.fromOffset(knobX, (TOGGLE_H - TOGGLE_KNOB) / 2)
-    track.BackgroundColor3 = on and GREEN or TOGGLE_OFF
+    track:SetAttribute("On", on)
+    track.BackgroundColor3 = switchColor(on, false)
 
     track.MouseButton1Click:Connect(function()
         settings[key] = not settings[key]
@@ -1427,7 +1484,7 @@ make("TextLabel", {
 local keyBtn = make("TextButton", {
     Size = UDim2.fromOffset(88, 22),
     Position = UDim2.new(1, -88, 0, 0),
-    BackgroundColor3 = Color3.fromRGB(58, 58, 58),
+    BackgroundColor3 = BUTTON_BG,
     BorderSizePixel = 0,
     Font = Enum.Font.SourceSans,
     Text = toggleKey.Name,
@@ -1436,16 +1493,123 @@ local keyBtn = make("TextButton", {
     AutoButtonColor = false,
 }, keyRow)
 
+local opacityRow = make("Frame", {
+    Size = UDim2.new(1, 0, 0, 36),
+    BackgroundTransparency = 1,
+    LayoutOrder = 16,
+}, settingsPage)
+make("TextLabel", {
+    Size = UDim2.new(1, -40, 0, 16),
+    BackgroundTransparency = 1,
+    Font = Enum.Font.SourceSans,
+    Text = "Background opacity",
+    TextSize = 15,
+    TextColor3 = Color3.fromRGB(210, 210, 210),
+    TextXAlignment = Enum.TextXAlignment.Left,
+}, opacityRow)
+local opacityValue = make("TextLabel", {
+    Size = UDim2.fromOffset(36, 16),
+    Position = UDim2.new(1, -36, 0, 0),
+    BackgroundTransparency = 1,
+    Font = Enum.Font.SourceSans,
+    Text = tostring(backgroundOpacity),
+    TextSize = 15,
+    TextColor3 = TEXT,
+    TextXAlignment = Enum.TextXAlignment.Right,
+}, opacityRow)
+local sliderHit = make("TextButton", {
+    Size = UDim2.new(1, 0, 0, 16),
+    Position = UDim2.fromOffset(0, 18),
+    BackgroundTransparency = 1,
+    Text = "",
+    AutoButtonColor = false,
+}, opacityRow)
+local sliderTrack = make("Frame", {
+    Size = UDim2.new(1, 0, 0, 4),
+    Position = UDim2.new(0, 0, 0.5, -2),
+    BackgroundColor3 = BUTTON_BG,
+    BorderSizePixel = 0,
+}, sliderHit)
+local sliderFill = make("Frame", {
+    Size = UDim2.new(backgroundOpacity / 100, 0, 1, 0),
+    BackgroundColor3 = Color3.fromRGB(230, 230, 230),
+    BorderSizePixel = 0,
+}, sliderTrack)
+
+local function paintOpacity()
+    opacityValue.Text = tostring(backgroundOpacity)
+    sliderFill.Size = UDim2.new(backgroundOpacity / 100, 0, 1, 0)
+    applyBackground()
+end
+
+local function opacityFromMouse()
+    local width = sliderTrack.AbsoluteSize.X
+    if width <= 0 then
+        return
+    end
+    local x = UserInputService:GetMouseLocation().X
+    local gui = window:FindFirstAncestorWhichIsA("ScreenGui")
+    if not (gui and gui.IgnoreGuiInset) then
+        x -= Services.GuiService:GetGuiInset().X
+    end
+    local alpha = math.clamp((x - sliderTrack.AbsolutePosition.X) / width, 0, 1)
+    backgroundOpacity = math.floor(alpha * 100 + 0.5)
+    paintOpacity()
+end
+
+local slidingOpacity = false
+local sliderHover = false
+sliderHit.InputBegan:Connect(function(input)
+    if input.UserInputType ~= Enum.UserInputType.MouseButton1 then
+        return
+    end
+    slidingOpacity = true
+    opacityFromMouse()
+end)
+sliderHit.MouseEnter:Connect(function()
+    sliderHover = true
+    sliderTrack.BackgroundColor3 = HOVER_BG
+end)
+sliderHit.MouseLeave:Connect(function()
+    sliderHover = false
+    if not slidingOpacity then
+        sliderTrack.BackgroundColor3 = BUTTON_BG
+    end
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if slidingOpacity and input.UserInputType == Enum.UserInputType.MouseMovement then
+        opacityFromMouse()
+    end
+end)
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType ~= Enum.UserInputType.MouseButton1 or not slidingOpacity then
+        return
+    end
+    slidingOpacity = false
+    sliderTrack.BackgroundColor3 = sliderHover and HOVER_BG or BUTTON_BG
+end)
+
+local keyHover = false
+
 local function paintKeyButton()
     keyBtn.Text = toggleKey.Name
     if capturingKey then
         keyBtn.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
         keyBtn.TextColor3 = Color3.fromRGB(18, 18, 18)
     else
-        keyBtn.BackgroundColor3 = Color3.fromRGB(58, 58, 58)
+        keyBtn.BackgroundColor3 = keyHover and HOVER_BG or BUTTON_BG
         keyBtn.TextColor3 = TEXT
     end
 end
+
+keyBtn.MouseEnter:Connect(function()
+    keyHover = true
+    paintKeyButton()
+end)
+keyBtn.MouseLeave:Connect(function()
+    keyHover = false
+    paintKeyButton()
+end)
 
 local lastFlip = 0
 
@@ -1564,7 +1728,7 @@ local introTween = Services.TweenService:Create(
     TweenInfo.new(0.45, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
     {
         GroupTransparency = 0,
-        Position = UDim2.new(0.5, -320, 0.5, -240),
+        Position = UDim2.new(0, WINDOW_EDGE, 1, -(WINDOW_H + WINDOW_EDGE)),
     }
 )
 introTween:Play()
