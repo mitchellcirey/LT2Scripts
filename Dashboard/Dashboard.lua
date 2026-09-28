@@ -87,6 +87,7 @@ local ID = {
     SHIFT_STEP = "JellDashboardShiftStep",
     LIGHTING_CONNS = "JellDashboardLightingConns",
     SAWMILL_CONNS = "JellDashboardSawmillConns",
+    WIRE_CONNS = "JellDashboardWireConns",
     JANITOR_GEN = "JellDashboardJanitorGen",
 }
 
@@ -121,6 +122,7 @@ local settings = {
     noClip = false,
     enhancedVisuals = false,
     lowerBridge = false,
+    longWire = false,
     axeRecovery = true,
 }
 
@@ -160,6 +162,7 @@ local function saveConfig()
         noClip = settings.noClip,
         enhancedVisuals = settings.enhancedVisuals,
         lowerBridge = settings.lowerBridge,
+        longWire = settings.longWire,
         axeRecovery = settings.axeRecovery,
         backgroundOpacity = backgroundOpacity,
         toggleKey = toggleKey.Name,
@@ -207,6 +210,7 @@ local function applySaved(data)
         "noClip",
         "enhancedVisuals",
         "lowerBridge",
+        "longWire",
         "axeRecovery",
     }) do
         if type(data[key]) == "boolean" then
@@ -559,6 +563,71 @@ local function restoreBridge()
     restored.Parent = Services.Workspace
 end
 
+local WIRE_SHORT = 20
+local WIRE_LONG = 50
+
+local function wireItem(item)
+    return item and string.find(string.lower(item.Name), "wire", 1, true) ~= nil
+end
+
+local function setWireLength(length)
+    local folder = Services.ReplicatedStorage:FindFirstChild("ClientItemInfo")
+    if not folder then
+        return
+    end
+    for _, item in ipairs(folder:GetChildren()) do
+        if wireItem(item) then
+            local other = item:FindFirstChild("OtherInfo")
+            local maxLength = other and other:FindFirstChild("MaxLength")
+            if maxLength then
+                maxLength.Value = length
+            end
+        end
+    end
+end
+
+local function applyWireLength()
+    setWireLength(settings.longWire and WIRE_LONG or WIRE_SHORT)
+end
+
+local function bindWireLength()
+    dropConnList(ID.WIRE_CONNS)
+    if not settings.longWire then
+        return
+    end
+    local conns = {}
+    local function watchFolder(folder)
+        table.insert(conns, folder.DescendantAdded:Connect(function(desc)
+            if not settings.longWire or desc.Name ~= "MaxLength" then
+                return
+            end
+            local other = desc.Parent
+            local item = other and other.Parent
+            if item and item.Parent == folder and wireItem(item) then
+                desc.Value = WIRE_LONG
+            end
+        end))
+    end
+    local folder = Services.ReplicatedStorage:FindFirstChild("ClientItemInfo")
+    if folder then
+        watchFolder(folder)
+    else
+        table.insert(conns, Services.ReplicatedStorage.ChildAdded:Connect(function(child)
+            if child.Name ~= "ClientItemInfo" or not settings.longWire then
+                return
+            end
+            task.defer(function()
+                if not settings.longWire then
+                    return
+                end
+                setWireLength(WIRE_LONG)
+                bindWireLength()
+            end)
+        end))
+    end
+    shared[ID.WIRE_CONNS] = conns
+end
+
 local lightingLock = false
 local lightingGeneration = 0
 
@@ -710,6 +779,10 @@ bindLighting()
 if settings.lowerBridge then
     lowerBridge()
 end
+if settings.longWire then
+    setWireLength(WIRE_LONG)
+end
+bindWireLength()
 
 local uiParent = getUiParent()
 local screenGui = make("ScreenGui", {
@@ -2526,6 +2599,11 @@ local function toggleRow(labelText, key, order)
             end
             return
         end
+        if key == "longWire" then
+            applyWireLength()
+            bindWireLength()
+            return
+        end
         if key == "axeRecovery" then
             bindAxeRecovery()
             return
@@ -2554,15 +2632,16 @@ toggleRow("Disable fog", "disableFog", 8)
 toggleRow("Always Day", "alwaysDay", 9)
 toggleRow("Enhanced visuals", "enhancedVisuals", 10)
 toggleRow("Lower bridge", "lowerBridge", 11)
-titleRule(settingsPage, "Player", 0, 22, 15, headerColor, 12)
-toggleRow("Prevent AFK kick", "preventAfkKick", 13)
-toggleRow("Axe recovery", "axeRecovery", 14)
-titleRule(settingsPage, "Window", 0, 22, 15, headerColor, 15)
+toggleRow("Long wire", "longWire", 12)
+titleRule(settingsPage, "Player", 0, 22, 15, headerColor, 13)
+toggleRow("Prevent AFK kick", "preventAfkKick", 14)
+toggleRow("Axe recovery", "axeRecovery", 15)
+titleRule(settingsPage, "Window", 0, 22, 15, headerColor, 16)
 
 local keyRow = make("Frame", {
     Size = UDim2.new(1, 0, 0, 22),
     BackgroundTransparency = 1,
-    LayoutOrder = 16,
+    LayoutOrder = 17,
 }, settingsPage)
 keyRow:SetAttribute("Stripe", true)
 make("TextLabel", {
@@ -2590,7 +2669,7 @@ local keyBtn = make("TextButton", {
 local opacityRow = make("Frame", {
     Size = UDim2.new(1, 0, 0, 36),
     BackgroundTransparency = 1,
-    LayoutOrder = 17,
+    LayoutOrder = 18,
 }, settingsPage)
 opacityRow:SetAttribute("Stripe", true)
 stripeList(settingsPage)
@@ -2808,6 +2887,10 @@ local function shutdown()
     _G.JellSawmillCircleOk = false
     _G.JellSawmillHighlightOk = false
     clearSawmillRing()
+    dropConnList(ID.WIRE_CONNS)
+    if settings.longWire then
+        setWireLength(WIRE_SHORT)
+    end
     restoreLighting()
     disconnectShared(ID.AFK_CONN)
     disconnectShared(ID.JUMP_CONN)
