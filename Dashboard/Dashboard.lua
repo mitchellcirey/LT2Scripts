@@ -563,69 +563,77 @@ local function restoreBridge()
     restored.Parent = Services.Workspace
 end
 
-local WIRE_SHORT = 20
-local WIRE_LONG = 50
+do
+    local WIRE_SHORT = 20
+    local WIRE_LONG = 50
 
-local function wireItem(item)
-    return item and string.find(string.lower(item.Name), "wire", 1, true) ~= nil
-end
-
-local function setWireLength(length)
-    local folder = Services.ReplicatedStorage:FindFirstChild("ClientItemInfo")
-    if not folder then
-        return
+    local function wireItem(item)
+        return item and string.find(string.lower(item.Name), "wire", 1, true) ~= nil
     end
-    for _, item in ipairs(folder:GetChildren()) do
-        if wireItem(item) then
-            local other = item:FindFirstChild("OtherInfo")
-            local maxLength = other and other:FindFirstChild("MaxLength")
-            if maxLength then
-                maxLength.Value = length
+
+    local function setWireLength(length)
+        local folder = Services.ReplicatedStorage:FindFirstChild("ClientItemInfo")
+        if not folder then
+            return
+        end
+        for _, item in ipairs(folder:GetChildren()) do
+            if wireItem(item) then
+                local other = item:FindFirstChild("OtherInfo")
+                local maxLength = other and other:FindFirstChild("MaxLength")
+                if maxLength then
+                    maxLength.Value = length
+                end
             end
         end
     end
-end
 
-local function applyWireLength()
-    setWireLength(settings.longWire and WIRE_LONG or WIRE_SHORT)
-end
+    local function applyWireLength()
+        setWireLength(settings.longWire and WIRE_LONG or WIRE_SHORT)
+    end
 
-local function bindWireLength()
-    dropConnList(ID.WIRE_CONNS)
-    if not settings.longWire then
-        return
-    end
-    local conns = {}
-    local function watchFolder(folder)
-        table.insert(conns, folder.DescendantAdded:Connect(function(desc)
-            if not settings.longWire or desc.Name ~= "MaxLength" then
-                return
-            end
-            local other = desc.Parent
-            local item = other and other.Parent
-            if item and item.Parent == folder and wireItem(item) then
-                desc.Value = WIRE_LONG
-            end
-        end))
-    end
-    local folder = Services.ReplicatedStorage:FindFirstChild("ClientItemInfo")
-    if folder then
-        watchFolder(folder)
-    else
-        table.insert(conns, Services.ReplicatedStorage.ChildAdded:Connect(function(child)
-            if child.Name ~= "ClientItemInfo" or not settings.longWire then
-                return
-            end
-            task.defer(function()
-                if not settings.longWire then
+    local function bindWireLength()
+        dropConnList(ID.WIRE_CONNS)
+        if not settings.longWire then
+            return
+        end
+        local conns = {}
+        local function watchFolder(folder)
+            table.insert(conns, folder.DescendantAdded:Connect(function(desc)
+                if not settings.longWire or desc.Name ~= "MaxLength" then
                     return
                 end
-                setWireLength(WIRE_LONG)
-                bindWireLength()
-            end)
-        end))
+                local other = desc.Parent
+                local item = other and other.Parent
+                if item and item.Parent == folder and wireItem(item) then
+                    desc.Value = WIRE_LONG
+                end
+            end))
+        end
+        local folder = Services.ReplicatedStorage:FindFirstChild("ClientItemInfo")
+        if folder then
+            watchFolder(folder)
+        else
+            table.insert(conns, Services.ReplicatedStorage.ChildAdded:Connect(function(child)
+                if child.Name ~= "ClientItemInfo" or not settings.longWire then
+                    return
+                end
+                task.defer(function()
+                    if not settings.longWire then
+                        return
+                    end
+                    setWireLength(WIRE_LONG)
+                    bindWireLength()
+                end)
+            end))
+        end
+        shared[ID.WIRE_CONNS] = conns
     end
-    shared[ID.WIRE_CONNS] = conns
+
+    ID.applyWireLength = applyWireLength
+    ID.bindWireLength = bindWireLength
+    ID.shortenWires = function()
+        setWireLength(WIRE_SHORT)
+    end
 end
 
 local lightingLock = false
@@ -780,9 +788,9 @@ if settings.lowerBridge then
     lowerBridge()
 end
 if settings.longWire then
-    setWireLength(WIRE_LONG)
+    ID.applyWireLength()
 end
-bindWireLength()
+ID.bindWireLength()
 
 local uiParent = getUiParent()
 local screenGui = make("ScreenGui", {
@@ -2600,8 +2608,8 @@ local function toggleRow(labelText, key, order)
             return
         end
         if key == "longWire" then
-            applyWireLength()
-            bindWireLength()
+            ID.applyWireLength()
+            ID.bindWireLength()
             return
         end
         if key == "axeRecovery" then
@@ -2889,7 +2897,7 @@ local function shutdown()
     clearSawmillRing()
     dropConnList(ID.WIRE_CONNS)
     if settings.longWire then
-        setWireLength(WIRE_SHORT)
+        ID.shortenWires()
     end
     restoreLighting()
     disconnectShared(ID.AFK_CONN)
